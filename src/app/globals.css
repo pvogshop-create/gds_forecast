@@ -1,26 +1,132 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ─── Design Tokens (Tailwind v4 @theme) ──────────────────────────────────── */
+@theme {
+  /* Typography */
+  --font-sans: "Inter", system-ui, sans-serif;
+
+  /* Primary green palette */
+  --color-primary:        #1A6B3C;
+  --color-primary-hover:  #155C32;
+  --color-primary-light:  #E8F5EE;
+
+  /* Accent — bright green (YES buttons, success) */
+  --color-accent:         #4ADE80;
+  --color-accent-hover:   #22C55E;
+
+  /* Button green */
+  --color-btn:            #2E9E5E;
+  --color-btn-hover:      #268A51;
+
+  /* Backgrounds */
+  --color-bg:             #F8FAFB;
+  --color-bg-card:        #FFFFFF;
+  --color-bg-hover:       #F0FAF4;
+  --color-bg-subtle:      #F1F5F2;
+
+  /* Text */
+  --color-ink-primary:    #0C1A12;
+  --color-ink-secondary:  #4A6558;
+  --color-ink-tertiary:   #94B0A4;
+  --color-ink-inverse:    #FFFFFF;
+
+  /* Markets */
+  --color-yes:            #1A6B3C;
+  --color-yes-bg:         #E8F5EE;
+  --color-no:             #EF4444;
+  --color-no-bg:          #FEF2F2;
+
+  /* Status */
+  --color-success:        #10B981;
+  --color-danger:         #EF4444;
+  --color-warning:        #F59E0B;
+  --color-coin:           #F59E0B;
+
+  /* Borders */
+  --color-border:         rgba(0, 0, 0, 0.07);
+  --color-border-focus:   rgba(26, 107, 60, 0.4);
+
+  /* Category badges */
+  --color-cat-sports:     #3B82F6;
+  --color-cat-actions:    #F59E0B;
+  --color-cat-social:     #A855F7;
+  --color-cat-trending:   #2E9E5E;
+
+  /* Border radius */
+  --radius-sm:   8px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   20px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-card:       0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-card-hover: 0 4px 16px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04);
+  --shadow-glow:       0 0 20px rgba(26,107,60,0.18);
+
+  /* Animation */
+  --duration-base: 200ms;
+  --ease-default:  cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* ─── Base Styles ──────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-ink-primary);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+}
+
+/* ─── Reduced Motion ───────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Custom Utilities (things Tailwind can't express inline) ──────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #e8f0eb 25%,
+    #f0f7f2 50%,
+    #e8f0eb 75%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+
+@keyframes skeleton-shimmer {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ─── Focus Ring ───────────────────────────────────────────────────────────── */
+.focus-ring {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+/* ─── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.2); }
+
+/* ─── Play Money Label ─────────────────────────────────────────────────────── */
+.play-money-badge {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-tertiary);
 }
