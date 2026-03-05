@@ -41,7 +41,14 @@ export async function POST(
   const { side, coins } = parsed.data;
   const { id: marketId } = await params;
 
-  // ── 3. Call place_bet() via admin client (service_role bypasses RLS) ────────
+  // ── 3. Validate marketId is a well-formed UUID ──────────────────────────────
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(marketId)) {
+    return NextResponse.json({ error: "Invalid market ID" }, { status: 400 });
+  }
+
+  // ── 4. Call place_bet() via admin client (service_role bypasses RLS) ────────
   const admin = createAdminClient();
   const { data, error } = await admin.rpc("place_bet", {
     p_market_id: marketId,
@@ -70,7 +77,19 @@ export async function POST(
         "Market price is at its limit. Cannot bet further in this direction.";
     }
 
-    return NextResponse.json({ error: clientMessage }, { status: 400 });
+    // Domain errors (invalid input, business rules) → 400; everything else → 500
+    const isDomainError =
+      msg.includes("Insufficient coins") ||
+      msg.includes("not open") ||
+      msg.includes("expired") ||
+      msg.includes("Minimum bet") ||
+      msg.includes("Maximum bet") ||
+      msg.includes("price is at its limit") ||
+      msg.includes("Unauthorized");
+    return NextResponse.json(
+      { error: clientMessage },
+      { status: isDomainError ? 400 : 500 }
+    );
   }
 
   return NextResponse.json({ success: true, result: data });

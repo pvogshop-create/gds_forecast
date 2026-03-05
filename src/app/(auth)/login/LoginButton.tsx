@@ -35,7 +35,7 @@ export function LoginButton() {
       email: trimmed,
       options: {
         emailRedirectTo: `${window.location.origin}/api/auth/callback`,
-        shouldCreateUser: true,
+        shouldCreateUser: false,
       },
     });
 

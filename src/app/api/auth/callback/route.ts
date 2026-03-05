@@ -6,7 +6,12 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type");
-  const next = searchParams.get("next") ?? "/dashboard/trending";
+  // Guard against open-redirect: only allow same-origin relative paths
+  const rawNext = searchParams.get("next") ?? "/dashboard/trending";
+  const next =
+    rawNext.startsWith("/") && !rawNext.startsWith("//")
+      ? rawNext
+      : "/dashboard/trending";
 
   const supabase = await createClient();
 

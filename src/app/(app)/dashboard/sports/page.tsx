@@ -17,7 +17,7 @@ export default async function SportsPage() {
       .eq("status", "open")
       .order("created_at", { ascending: false })
       .limit(1)
-      .single(),
+      .maybeSingle(),
 
     supabase
       .from("markets")

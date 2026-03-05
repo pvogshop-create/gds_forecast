@@ -39,14 +39,16 @@ export function BettingPanel({
   const [coinInput, setCoinInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [successResult, setSuccessResult] = useState<PlaceBetResult | null>(null);
+  // Track balance locally so it updates immediately after a bet
+  const [balance, setBalance] = useState(userBalance);
 
   const coins = parseInt(coinInput, 10) || 0;
-  const validation = coins > 0 ? validateBet(coins, userBalance) : null;
+  const validation = coins > 0 ? validateBet(coins, balance) : null;
   const isOpen = market.status === "open";
 
   // Preview calculations
   const preview =
-    coins > 0 && !validation?.valid === false && isOpen
+    coins > 0 && (!validation || validation.valid) && isOpen
       ? estimateBetPayout(coins, market.yes_pool, market.no_pool, selectedSide)
       : null;
 
@@ -82,10 +84,13 @@ export function BettingPanel({
 
       setSuccessResult(data.result ?? null);
       setCoinInput("");
+      if (data.result) {
+        setBalance(data.result.coins_remaining);
+        onBetPlaced?.(data.result);
+      }
       toast.success(
         `Bet placed! You bought ${data.result?.shares_bought.toFixed(2)} shares.`
       );
-      onBetPlaced?.(data.result!);
       router.refresh();
     } catch {
       toast.error("Network error. Please try again.");
@@ -145,7 +150,7 @@ export function BettingPanel({
         >
           Balance:{" "}
           <span style={{ color: "var(--color-coin)" }}>
-            {formatCoins(userBalance)} coins
+            {formatCoins(balance)} coins
           </span>
         </p>
       </div>
@@ -208,7 +213,7 @@ export function BettingPanel({
               <button
                 key={amount}
                 onClick={() => setCoinInput(amount.toString())}
-                disabled={amount > userBalance}
+                disabled={amount > balance}
                 className={cn(
                   "py-2 rounded-lg text-xs font-semibold transition-all duration-150",
                   "disabled:opacity-40 disabled:cursor-not-allowed"
