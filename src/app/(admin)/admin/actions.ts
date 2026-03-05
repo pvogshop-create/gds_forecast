@@ -3,6 +3,7 @@
 import { requireAdmin } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
+import { americanOddsToProb } from "@/lib/market-logic";
 import type { MarketCategory } from "@/types/database";
 
 // ─── Create Market ────────────────────────────────────────────────────────────
@@ -71,8 +72,42 @@ export async function setMarketStatus(
   revalidatePath("/admin");
 }
 
+// ─── Set Market Line ──────────────────────────────────────────────────────────
+// Adjusts yes_pool/no_pool to reflect the given American odds for YES,
+// keeping total pool size constant.
+export async function setMarketLine(marketId: string, yesOdds: number) {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { data: market } = await admin
+    .from("markets")
+    .select("yes_pool, no_pool")
+    .eq("id", marketId)
+    .single();
+
+  if (!market) throw new Error("Market not found");
+
+  const total = market.yes_pool + market.no_pool;
+  const p = americanOddsToProb(yesOdds);
+  const newYesPool = Math.round(total * p);
+  const newNoPool = total - newYesPool;
+
+  const { error } = await admin
+    .from("markets")
+    .update({ yes_pool: newYesPool, no_pool: newNoPool })
+    .eq("id", marketId);
+
+  if (error) throw new Error(`Failed to set market line: ${error.message}`);
+  revalidatePath("/admin");
+  revalidatePath(`/market/${marketId}`);
+}
+
 // ─── Approve Suggestion ───────────────────────────────────────────────────────
-export async function approveSuggestion(suggestionId: string) {
+// yesOdds: American odds for YES side (e.g. +150, -110). Defaults to +100 (even).
+export async function approveSuggestion(
+  suggestionId: string,
+  yesOdds: number = 100
+) {
   const user = await requireAdmin();
   const admin = createAdminClient();
 
@@ -85,7 +120,12 @@ export async function approveSuggestion(suggestionId: string) {
 
   if (fetchError || !suggestion) throw new Error("Suggestion not found");
 
-  // Create market from suggestion
+  // Convert American odds to initial pool ratio (total starting pool = 200)
+  const p = americanOddsToProb(yesOdds);
+  const yesPool = Math.round(200 * p);
+  const noPool = 200 - yesPool;
+
+  // Create market from suggestion with odds-derived initial pools
   const { data: market, error: createError } = await admin
     .from("markets")
     .insert({
@@ -93,6 +133,8 @@ export async function approveSuggestion(suggestionId: string) {
       description: suggestion.description,
       category: suggestion.category,
       creator_id: user.id,
+      yes_pool: yesPool,
+      no_pool: noPool,
     })
     .select("id")
     .single();

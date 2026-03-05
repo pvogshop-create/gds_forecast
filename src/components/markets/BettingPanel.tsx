@@ -7,13 +7,15 @@ import { Button } from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import {
   formatProbability,
-  formatCents,
   formatCoins,
   cn,
 } from "@/lib/utils";
 import {
-  estimateBetPayout,
   validateBet,
+  probToAmericanOdds,
+  formatAmericanOdds,
+  estimateOddsPayout,
+  computeNewProbability,
 } from "@/lib/market-logic";
 import type { Market, Position, PlaceBetResult, PositionSide } from "@/types/database";
 
@@ -46,14 +48,20 @@ export function BettingPanel({
   const validation = coins > 0 ? validateBet(coins, balance) : null;
   const isOpen = market.status === "open";
 
-  // Preview calculations
-  const preview =
-    coins > 0 && (!validation || validation.valid) && isOpen
-      ? estimateBetPayout(coins, market.yes_pool, market.no_pool, selectedSide)
-      : null;
-
   const yesProb = market.yes_probability;
   const noProb = 1 - yesProb;
+
+  // American odds for each side (derived from current probability)
+  const yesOdds = probToAmericanOdds(yesProb);
+  const noOdds = probToAmericanOdds(noProb);
+  const sideOdds = selectedSide === "yes" ? yesOdds : noOdds;
+
+  // Preview calculations using locked-in American odds
+  const canPreview = coins > 0 && (!validation || validation.valid) && isOpen;
+  const previewPayout = canPreview ? estimateOddsPayout(coins, sideOdds) : null;
+  const previewNewProb = canPreview
+    ? computeNewProbability(market.yes_pool, market.no_pool, coins, selectedSide)
+    : null;
 
   async function handleBet() {
     const betCoins = parseInt(coinInput, 10);
@@ -87,10 +95,17 @@ export function BettingPanel({
       if (data.result) {
         setBalance(data.result.coins_remaining);
         onBetPlaced?.(data.result);
+        const lockedOdds =
+          selectedSide === "yes"
+            ? data.result.yes_odds_at_bet
+            : -data.result.yes_odds_at_bet;
+        const potentialPayout = estimateOddsPayout(betCoins, lockedOdds);
+        toast.success(
+          `Bet placed at ${formatAmericanOdds(lockedOdds)}! Potential payout: ${formatCoins(potentialPayout)} coins.`
+        );
+      } else {
+        toast.success("Bet placed!");
       }
-      toast.success(
-        `Bet placed! You bought ${data.result?.shares_bought.toFixed(2)} shares.`
-      );
       router.refresh();
     } catch {
       toast.error("Network error. Please try again.");
@@ -160,6 +175,7 @@ export function BettingPanel({
         <div className="grid grid-cols-2 gap-2">
           {(["yes", "no"] as const).map((side) => {
             const prob = side === "yes" ? yesProb : noProb;
+            const odds = side === "yes" ? yesOdds : noOdds;
             const isSelected = selectedSide === side;
             return (
               <button
@@ -193,7 +209,7 @@ export function BettingPanel({
               >
                 <span>{side.toUpperCase()}</span>
                 <span className="text-xs font-normal opacity-80">
-                  {formatCents(prob)} · {formatProbability(prob)}
+                  {formatAmericanOdds(odds)} · {formatProbability(prob)}
                 </span>
               </button>
             );
@@ -283,20 +299,20 @@ export function BettingPanel({
         </div>
 
         {/* Payout preview */}
-        {preview && coins > 0 && (!validation || validation.valid) && (
+        {canPreview && previewPayout !== null && previewNewProb !== null && (
           <div
             className="rounded-lg px-3 py-2.5 space-y-1"
             style={{ backgroundColor: "var(--color-bg)" }}
           >
             <div className="flex justify-between text-xs">
               <span style={{ color: "var(--color-ink-tertiary)" }}>
-                Shares to receive
+                Current {selectedSide.toUpperCase()} odds
               </span>
               <span
                 className="font-medium"
                 style={{ color: "var(--color-ink-primary)" }}
               >
-                {preview.shares.toFixed(2)}
+                {formatAmericanOdds(sideOdds)}
               </span>
             </div>
             <div className="flex justify-between text-xs">
@@ -307,18 +323,18 @@ export function BettingPanel({
                 className="font-medium"
                 style={{ color: "var(--color-ink-primary)" }}
               >
-                {formatProbability(preview.newProbability)}
+                {formatProbability(previewNewProb)}
               </span>
             </div>
             <div className="flex justify-between text-xs">
               <span style={{ color: "var(--color-ink-tertiary)" }}>
-                Est. payout if {selectedSide.toUpperCase()} wins
+                Payout if {selectedSide.toUpperCase()} wins
               </span>
               <span
                 className="font-semibold"
                 style={{ color: "var(--color-primary)" }}
               >
-                ~{formatCoins(preview.estimatedPayout)} coins
+                {formatCoins(previewPayout)} coins
               </span>
             </div>
           </div>
@@ -334,8 +350,13 @@ export function BettingPanel({
             }}
             role="status"
           >
-            ✓ Bet placed! {successResult.shares_bought.toFixed(2)} shares
-            received.
+            ✓ Bet placed at{" "}
+            {formatAmericanOdds(
+              selectedSide === "yes"
+                ? successResult.yes_odds_at_bet
+                : -successResult.yes_odds_at_bet
+            )}
+            !
           </div>
         )}
 

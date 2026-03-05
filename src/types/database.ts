@@ -61,6 +61,7 @@ export interface Position {
   coins_wagered: number;
   shares_bought: number;
   price_at_bet: number; // 0.0–1.0
+  yes_odds_at_bet: number; // American odds for YES side locked at bet time
   status: PositionStatus;
   payout: number | null;
   created_at: string;
@@ -81,6 +82,7 @@ export interface MarketSuggestion {
   category: MarketCategory;
   status: SuggestionStatus;
   admin_note: string | null;
+  suggested_yes_odds: number | null; // American odds for YES side; null = default +100
   created_at: string;
   updated_at: string;
 }
@@ -161,6 +163,7 @@ export interface PlaceBetResult {
   position_id: string;
   shares_bought: number;
   price_at_bet: number;
+  yes_odds_at_bet: number; // American odds for YES side locked at bet time
   coins_spent: number;
   coins_remaining: number;
   new_probability: number;

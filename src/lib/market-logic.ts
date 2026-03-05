@@ -109,3 +109,55 @@ export function validateBet(
   }
   return { valid: true };
 }
+
+// ─── American Odds Utilities ──────────────────────────────────────────────────
+
+// Convert implied probability (0.0–1.0) to American odds integer.
+// P ≥ 0.5 → negative (favorite):  -(P / (1-P)) × 100
+// P < 0.5 → positive (underdog):  ((1-P) / P) × 100
+export function probToAmericanOdds(probability: number): number {
+  const p = Math.max(0.01, Math.min(0.99, probability));
+  if (p >= 0.5) {
+    return Math.round(-(p / (1 - p)) * 100);
+  }
+  return Math.round(((1 - p) / p) * 100);
+}
+
+// Convert American odds to implied probability.
+// +100 → 0.5  | +150 → 0.4  | -150 → 0.6
+export function americanOddsToProb(odds: number): number {
+  if (odds >= 0) {
+    return 100 / (odds + 100);
+  }
+  return Math.abs(odds) / (Math.abs(odds) + 100);
+}
+
+// Format American odds for display: "+150", "-110", "+100"
+export function formatAmericanOdds(odds: number): string {
+  return odds > 0 ? `+${odds}` : `${odds}`;
+}
+
+// Total payout multiplier (includes original stake).
+// +100 → 2.0×  | +150 → 2.5×  | -150 → 1.667×
+export function americanOddsMultiplier(odds: number): number {
+  if (odds >= 0) {
+    return (100 + odds) / 100;
+  }
+  return (Math.abs(odds) + 100) / Math.abs(odds);
+}
+
+// Estimate total payout (stake + profit) from coins wagered and locked-in odds.
+export function estimateOddsPayout(coins: number, odds: number): number {
+  return Math.round(coins * americanOddsMultiplier(odds));
+}
+
+// Parse user-entered American odds string: "+150", "-110", "200", "-200"
+// Returns integer or null if invalid.
+export function parseAmericanOdds(input: string): number | null {
+  const match = input.trim().match(/^([+-]?\d+)$/);
+  if (!match || !match[1]) return null;
+  const val = parseInt(match[1], 10);
+  // Valid range: ≤ -100 or ≥ +100 (values between -99 and 99 are meaningless)
+  if (val > -100 && val < 100) return null;
+  return val;
+}

@@ -1,14 +1,17 @@
 import Link from "next/link";
-import { Clock, Users, TrendingUp } from "lucide-react";
+import { Clock, TrendingUp } from "lucide-react";
 import { CategoryBadge, NewBadge } from "@/components/ui/Badge";
 import {
   formatProbability,
-  formatCents,
   formatCoins,
   formatTimeRemaining,
   isNewMarket,
   cn,
 } from "@/lib/utils";
+import {
+  probToAmericanOdds,
+  formatAmericanOdds,
+} from "@/lib/market-logic";
 import type { Market } from "@/types/database";
 
 interface MarketCardProps {
@@ -149,7 +152,10 @@ export function MarketCard({
                 }}
                 aria-label={`Bet YES at ${formatProbability(yesProb)}`}
               >
-                YES <span className="opacity-70">{formatCents(yesProb)}</span>
+                YES{" "}
+                <span className="opacity-70">
+                  {formatAmericanOdds(probToAmericanOdds(yesProb))}
+                </span>
               </button>
             </Link>
             <Link href={`/market/${market.id}?side=no`}>
@@ -162,7 +168,10 @@ export function MarketCard({
                 }}
                 aria-label={`Bet NO at ${formatProbability(noProb)}`}
               >
-                NO <span className="opacity-70">{formatCents(noProb)}</span>
+                NO{" "}
+                <span className="opacity-70">
+                  {formatAmericanOdds(probToAmericanOdds(noProb))}
+                </span>
               </button>
             </Link>
           </div>
