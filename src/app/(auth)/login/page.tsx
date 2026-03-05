@@ -82,8 +82,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           className="text-sm mb-6"
           style={{ color: "var(--color-ink-secondary)" }}
         >
-          Enter your <span className="font-medium">@gds.org</span> email to
-          receive a sign-in link.
+          Enter your email to receive a sign-in link. No password needed.
         </p>
 
         {errorMessage && (
