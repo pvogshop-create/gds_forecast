@@ -1,3 +1,4 @@
+import { Clock } from "lucide-react";
 import { cn, getCategoryColors, getCategoryLabel } from "@/lib/utils";
 import type { MarketCategory } from "@/types/database";
 
@@ -43,6 +44,20 @@ export function NewBadge({ className }: { className?: string }) {
     >
       New
     </Badge>
+  );
+}
+
+export function ClosingSoonBadge({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600",
+        className
+      )}
+    >
+      <Clock size={10} strokeWidth={2.5} />
+      CLOSING SOON
+    </span>
   );
 }
 

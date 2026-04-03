@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Clock, TrendingUp } from "lucide-react";
-import { CategoryBadge, NewBadge } from "@/components/ui/Badge";
+import { CategoryBadge, ClosingSoonBadge, NewBadge } from "@/components/ui/Badge";
 import {
   formatProbability,
   formatCoins,
@@ -25,10 +25,16 @@ export function MarketCard({
   userPosition,
   className,
 }: MarketCardProps) {
+  const isOU = market.market_type === "over_under";
   const totalPool = market.yes_pool + market.no_pool;
   const yesProb = market.yes_probability;
   const noProb = 1 - yesProb;
   const isNew = isNewMarket(market.created_at);
+  const isClosingSoon = (() => {
+    if (!market.resolution_date) return false;
+    const diff = new Date(market.resolution_date).getTime() - Date.now();
+    return diff > 0 && diff < 24 * 60 * 60 * 1000;
+  })();
   const isResolved =
     market.status === "resolved_yes" || market.status === "resolved_no";
 
@@ -49,6 +55,7 @@ export function MarketCard({
         <div className="flex items-center gap-2">
           <CategoryBadge category={market.category} />
           {isNew && <NewBadge />}
+          {isClosingSoon && <ClosingSoonBadge />}
           {userPosition && (
             <span
               className="text-xs font-medium px-2 py-0.5 rounded-full"
@@ -63,7 +70,11 @@ export function MarketCard({
                     : "var(--color-no)",
               }}
             >
-              {userPosition.side.toUpperCase()} position
+              {isOU
+                ? userPosition.side === "yes"
+                  ? "OVER position"
+                  : "UNDER position"
+                : `${userPosition.side.toUpperCase()} position`}
             </span>
           )}
         </div>
@@ -105,25 +116,43 @@ export function MarketCard({
         </h3>
       </Link>
 
-      {/* Probability bar */}
+      {/* Probability / volume bar */}
       <div className="mb-3">
-        <div
-          className="h-2 rounded-full overflow-hidden"
-          style={{ backgroundColor: "var(--color-bg)" }}
-          role="progressbar"
-          aria-valuenow={Math.round(yesProb * 100)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={`YES probability: ${formatProbability(yesProb)}`}
-        >
+        {isOU ? (
+          /* O/U: show current line prominently instead of bar */
+          <div className="flex items-center justify-between">
+            <span
+              className="text-base font-bold"
+              style={{ color: "var(--color-primary)" }}
+            >
+              O/U {market.ou_line} {market.ou_unit}
+            </span>
+            <span
+              className="text-xs"
+              style={{ color: "var(--color-ink-tertiary)" }}
+            >
+              +100 both sides
+            </span>
+          </div>
+        ) : (
           <div
-            className="h-full rounded-full transition-all duration-500"
-            style={{
-              width: `${Math.round(yesProb * 100)}%`,
-              backgroundColor: "var(--color-yes)",
-            }}
-          />
-        </div>
+            className="h-2 rounded-full overflow-hidden"
+            style={{ backgroundColor: "var(--color-bg)" }}
+            role="progressbar"
+            aria-valuenow={Math.round(yesProb * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`YES probability: ${formatProbability(yesProb)}`}
+          >
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${Math.round(yesProb * 100)}%`,
+                backgroundColor: "var(--color-yes)",
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Bottom row: volume + bet buttons */}
@@ -150,11 +179,17 @@ export function MarketCard({
                   color: "var(--color-yes)",
                   border: "1px solid rgba(26,107,60,0.2)",
                 }}
-                aria-label={`Bet YES at ${formatProbability(yesProb)}`}
+                aria-label={
+                  isOU
+                    ? `Bet OVER ${market.ou_line} ${market.ou_unit}`
+                    : `Bet YES at ${formatProbability(yesProb)}`
+                }
               >
-                YES{" "}
+                {isOU ? "OVER" : "YES"}{" "}
                 <span className="opacity-70">
-                  {formatAmericanOdds(probToAmericanOdds(yesProb))}
+                  {isOU
+                    ? "+100"
+                    : formatAmericanOdds(probToAmericanOdds(yesProb))}
                 </span>
               </button>
             </Link>
@@ -166,11 +201,17 @@ export function MarketCard({
                   color: "var(--color-no)",
                   border: "1px solid rgba(239,68,68,0.2)",
                 }}
-                aria-label={`Bet NO at ${formatProbability(noProb)}`}
+                aria-label={
+                  isOU
+                    ? `Bet UNDER ${market.ou_line} ${market.ou_unit}`
+                    : `Bet NO at ${formatProbability(noProb)}`
+                }
               >
-                NO{" "}
+                {isOU ? "UNDER" : "NO"}{" "}
                 <span className="opacity-70">
-                  {formatAmericanOdds(probToAmericanOdds(noProb))}
+                  {isOU
+                    ? "+100"
+                    : formatAmericanOdds(probToAmericanOdds(noProb))}
                 </span>
               </button>
             </Link>

@@ -6,7 +6,9 @@
     "dev": "node node_modules/next/dist/bin/next dev",
     "build": "node node_modules/next/dist/bin/next build",
     "start": "node node_modules/next/dist/bin/next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "type-check": "node node_modules/typescript/lib/tsc.js --noEmit"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",
@@ -15,7 +17,7 @@
     "clsx": "^2.1.1",
     "framer-motion": "^12.34.5",
     "lucide-react": "^0.576.0",
-    "next": "16.1.6",
+    "next": "^16.2.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "recharts": "^3.7.0",
@@ -31,6 +33,7 @@
     "eslint-config-next": "16.1.6",
     "supabase": "^2.76.16",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
   }
 }

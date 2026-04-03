@@ -4,6 +4,7 @@
 //   npx supabase gen types typescript --project-id YOUR_PROJECT_ID > src/types/database.ts
 
 export type MarketCategory = "sports" | "social" | "actions" | "trending";
+export type MarketType = "binary" | "over_under";
 export type MarketStatus =
   | "open"
   | "closed"
@@ -40,13 +41,18 @@ export interface Market {
   description: string;
   category: MarketCategory;
   status: MarketStatus;
+  market_type: MarketType;
   yes_pool: number;
   no_pool: number;
   yes_probability: number; // 0.0–1.0
+  ou_line: number | null;          // current live line (O/U markets only)
+  ou_opening_line: number | null;  // original line set at creation
+  ou_unit: string | null;          // display unit, e.g. "pts", "goals"
   resolution_date: string | null;
   resolved_at: string | null;
   resolved_by: string | null;
   resolution_note: string | null;
+  resolution_value: number | null; // actual numeric result (O/U markets)
   creator_id: string;
   is_featured: boolean;
   created_at: string;
@@ -62,6 +68,7 @@ export interface Position {
   shares_bought: number;
   price_at_bet: number; // 0.0–1.0
   yes_odds_at_bet: number; // American odds for YES side locked at bet time
+  ou_line_at_bet: number | null; // O/U line locked at bet time (null for binary)
   status: PositionStatus;
   payout: number | null;
   created_at: string;
@@ -83,6 +90,9 @@ export interface MarketSuggestion {
   status: SuggestionStatus;
   admin_note: string | null;
   suggested_yes_odds: number | null; // American odds for YES side; null = default +100
+  market_type: MarketType;
+  ou_opening_line: number | null;    // suggested line for O/U markets
+  ou_unit: string | null;            // display unit, e.g. "pts"
   created_at: string;
   updated_at: string;
 }
@@ -143,7 +153,15 @@ export interface ActivityFeedEntryWithProfile extends ActivityFeedEntry {
 export interface PositionWithMarket extends Position {
   markets: Pick<
     Market,
-    "id" | "title" | "category" | "status" | "yes_probability"
+    | "id"
+    | "title"
+    | "category"
+    | "status"
+    | "yes_probability"
+    | "market_type"
+    | "ou_line"
+    | "ou_unit"
+    | "resolution_date"
   >;
 }
 
@@ -167,6 +185,16 @@ export interface PlaceBetResult {
   coins_spent: number;
   coins_remaining: number;
   new_probability: number;
+}
+
+// ─── Place O/U bet function return type ──────────────────────────────────────
+export interface PlaceOuBetResult {
+  position_id: string;
+  ou_line_at_bet: number;  // line locked at the moment of bet
+  new_line: number;        // line after this bet moved it
+  coins_spent: number;
+  coins_remaining: number;
+  potential_payout: number; // always coins_spent × 2
 }
 
 // ─── Resolve market function return type ─────────────────────────────────────
