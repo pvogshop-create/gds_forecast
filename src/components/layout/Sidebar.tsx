@@ -9,6 +9,7 @@ import {
   Zap,
   Shield,
   Plus,
+  Bell,
   Coins,
   Settings,
   LogOut,
@@ -26,6 +27,7 @@ const NAV_ITEMS = [
 ] as const;
 
 const SECONDARY_NAV = [
+  { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Leagues", href: "/leagues", icon: Shield },
   { label: "Suggest a Line", href: "/suggest", icon: Plus },
 ] as const;

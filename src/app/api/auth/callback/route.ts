@@ -19,10 +19,14 @@ export async function GET(request: NextRequest) {
   let userEmail: string | null = null;
 
   if (tokenHash && type) {
+    // Validate type before passing to Supabase — only accept known magic-link values
+    if (type !== "magiclink" && type !== "email") {
+      return NextResponse.redirect(new URL("/login?error=auth_failed", origin));
+    }
     // Magic link / OTP flow
     const { data, error } = await supabase.auth.verifyOtp({
       token_hash: tokenHash,
-      type: type as "magiclink" | "email",
+      type,
     });
     if (error || !data.user) {
       console.error("Magic link callback error:", error?.message);

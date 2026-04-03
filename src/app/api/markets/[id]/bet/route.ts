@@ -48,9 +48,19 @@ export async function POST(
     return NextResponse.json({ error: "Invalid market ID" }, { status: 400 });
   }
 
-  // ── 4. Call place_bet() via admin client (service_role bypasses RLS) ────────
+  // ── 4. Fetch market type to route to the correct stored procedure ────────────
   const admin = createAdminClient();
-  const { data, error } = await admin.rpc("place_bet", {
+  const { data: marketMeta } = await admin
+    .from("markets")
+    .select("market_type")
+    .eq("id", marketId)
+    .single();
+
+  const rpcName =
+    marketMeta?.market_type === "over_under" ? "place_ou_bet" : "place_bet";
+
+  // ── 5. Call the appropriate stored procedure ───────────────────────────────
+  const { data, error } = await admin.rpc(rpcName, {
     p_market_id: marketId,
     p_user_id: user.id,
     p_side: side,
@@ -58,10 +68,14 @@ export async function POST(
   });
 
   if (error) {
-    // Map Postgres exception messages to user-friendly responses
+    // P0001 = Postgres SQLSTATE for RAISE EXCEPTION without a custom ERRCODE.
+    // All business-logic exceptions use plain RAISE EXCEPTION, so they all
+    // carry P0001 and are safe to surface to the client as 400 errors.
+    const isDomainError = error.code === "P0001";
+
+    // Map known business-logic messages to user-friendly copy
     const msg = error.message;
     let clientMessage = "Failed to place bet. Please try again.";
-
     if (msg.includes("Insufficient coins")) {
       clientMessage = "You don't have enough coins for this bet.";
     } else if (msg.includes("not open")) {
@@ -75,17 +89,13 @@ export async function POST(
     } else if (msg.includes("price is at its limit")) {
       clientMessage =
         "Market price is at its limit. Cannot bet further in this direction.";
+    } else if (msg.includes("calibration period")) {
+      clientMessage =
+        "Max bet is 100 coins during the first 5 bets on a new market.";
+    } else if (msg.includes("no line set")) {
+      clientMessage = "This market does not have a line set yet.";
     }
 
-    // Domain errors (invalid input, business rules) → 400; everything else → 500
-    const isDomainError =
-      msg.includes("Insufficient coins") ||
-      msg.includes("not open") ||
-      msg.includes("expired") ||
-      msg.includes("Minimum bet") ||
-      msg.includes("Maximum bet") ||
-      msg.includes("price is at its limit") ||
-      msg.includes("Unauthorized");
     return NextResponse.json(
       { error: clientMessage },
       { status: isDomainError ? 400 : 500 }

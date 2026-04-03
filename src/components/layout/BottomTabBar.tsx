@@ -10,7 +10,7 @@ const TABS = [
   { label: "Sports", href: "/dashboard/sports", icon: Trophy },
   { label: "Actions", href: "/dashboard/actions", icon: Zap },
   { label: "Social", href: "/dashboard/social", icon: Users },
-  { label: "More", href: "/leagues", icon: LayoutGrid },
+  { label: "More", href: "/more", icon: LayoutGrid },
 ] as const;
 
 interface BottomTabBarProps {
@@ -36,8 +36,10 @@ export function BottomTabBar({ className }: BottomTabBarProps) {
       {TABS.map(({ label, href, icon: Icon }) => {
         const isActive =
           pathname.startsWith(href) ||
-          (href === "/leagues" &&
-            (pathname.startsWith("/leagues") ||
+          (href === "/more" &&
+            (pathname.startsWith("/more") ||
+              pathname.startsWith("/notifications") ||
+              pathname.startsWith("/leagues") ||
               pathname.startsWith("/suggest") ||
               pathname.startsWith("/profile")));
 

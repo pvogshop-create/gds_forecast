@@ -6,8 +6,8 @@ import { Coins } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import {
-  formatProbability,
   formatCoins,
+  formatProbability,
   cn,
 } from "@/lib/utils";
 import {
@@ -17,14 +17,24 @@ import {
   estimateOddsPayout,
   computeNewProbability,
 } from "@/lib/market-logic";
-import type { Market, Position, PlaceBetResult, PositionSide } from "@/types/database";
+import type {
+  Market,
+  Position,
+  PlaceBetResult,
+  PlaceOuBetResult,
+  PositionSide,
+} from "@/types/database";
 
 const PRESET_AMOUNTS = [10, 50, 100, 500] as const;
+
+const CALIBRATION_BETS = 5;
+const CALIBRATION_MAX = 100;
 
 interface BettingPanelProps {
   market: Market;
   userPosition: Position | null;
   userBalance: number;
+  marketBetCount: number;
   initialSide?: PositionSide;
   onBetPlaced?: (result: PlaceBetResult) => void;
 }
@@ -33,39 +43,66 @@ export function BettingPanel({
   market,
   userPosition,
   userBalance,
+  marketBetCount,
   initialSide = "yes",
   onBetPlaced,
 }: BettingPanelProps) {
   const router = useRouter();
+  const isOU = market.market_type === "over_under";
+
   const [selectedSide, setSelectedSide] = useState<PositionSide>(initialSide);
   const [coinInput, setCoinInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
-  const [successResult, setSuccessResult] = useState<PlaceBetResult | null>(null);
-  // Track balance locally so it updates immediately after a bet
+  const [successResult, setSuccessResult] = useState<
+    PlaceBetResult | PlaceOuBetResult | null
+  >(null);
   const [balance, setBalance] = useState(userBalance);
 
+  const isCalibrating = marketBetCount < CALIBRATION_BETS;
+  const effectiveMax = isCalibrating ? CALIBRATION_MAX : 500;
+  const betsRemaining = Math.max(0, CALIBRATION_BETS - marketBetCount);
+
   const coins = parseInt(coinInput, 10) || 0;
-  const validation = coins > 0 ? validateBet(coins, balance) : null;
+  const validation = coins > 0 ? validateBet(coins, balance, 10, effectiveMax) : null;
   const isOpen = market.status === "open";
 
+  // Binary market helpers
   const yesProb = market.yes_probability;
   const noProb = 1 - yesProb;
-
-  // American odds for each side (derived from current probability)
   const yesOdds = probToAmericanOdds(yesProb);
   const noOdds = probToAmericanOdds(noProb);
   const sideOdds = selectedSide === "yes" ? yesOdds : noOdds;
 
-  // Preview calculations using locked-in American odds
+  // Binary preview
   const canPreview = coins > 0 && (!validation || validation.valid) && isOpen;
-  const previewPayout = canPreview ? estimateOddsPayout(coins, sideOdds) : null;
-  const previewNewProb = canPreview
+  const previewPayout = canPreview && !isOU
+    ? estimateOddsPayout(coins, sideOdds)
+    : null;
+  const previewNewProb = canPreview && !isOU
     ? computeNewProbability(market.yes_pool, market.no_pool, coins, selectedSide)
     : null;
 
+  // O/U preview
+  const ouPreviewPayout = canPreview && isOU ? coins * 2 : null;
+  const ouLineShift = canPreview && isOU
+    ? 0.5 * Math.ceil(coins / 100)
+    : null;
+  const ouNewLine =
+    canPreview && isOU && market.ou_line !== null && ouLineShift !== null
+      ? selectedSide === "yes"
+        ? market.ou_line + ouLineShift
+        : market.ou_line - ouLineShift
+      : null;
+
+  const sideLabel = isOU
+    ? selectedSide === "yes"
+      ? "OVER"
+      : "UNDER"
+    : selectedSide.toUpperCase();
+
   async function handleBet() {
     const betCoins = parseInt(coinInput, 10);
-    const betValidation = validateBet(betCoins, userBalance);
+    const betValidation = validateBet(betCoins, balance, 10, effectiveMax);
     if (!betValidation.valid) {
       toast.error(betValidation.error ?? "Invalid bet.");
       return;
@@ -81,7 +118,7 @@ export function BettingPanel({
 
       const data = (await res.json()) as {
         success?: boolean;
-        result?: PlaceBetResult;
+        result?: PlaceBetResult | PlaceOuBetResult;
         error?: string;
       };
 
@@ -92,20 +129,31 @@ export function BettingPanel({
 
       setSuccessResult(data.result ?? null);
       setCoinInput("");
+
       if (data.result) {
         setBalance(data.result.coins_remaining);
-        onBetPlaced?.(data.result);
-        const lockedOdds =
-          selectedSide === "yes"
-            ? data.result.yes_odds_at_bet
-            : -data.result.yes_odds_at_bet;
-        const potentialPayout = estimateOddsPayout(betCoins, lockedOdds);
-        toast.success(
-          `Bet placed at ${formatAmericanOdds(lockedOdds)}! Potential payout: ${formatCoins(potentialPayout)} coins.`
-        );
+
+        if (isOU) {
+          const ouResult = data.result as PlaceOuBetResult;
+          toast.success(
+            `Bet placed ${sideLabel} ${ouResult.ou_line_at_bet}! Potential payout: ${formatCoins(ouResult.potential_payout)} coins.`
+          );
+        } else {
+          const binResult = data.result as PlaceBetResult;
+          onBetPlaced?.(binResult);
+          const lockedOdds =
+            selectedSide === "yes"
+              ? binResult.yes_odds_at_bet
+              : -binResult.yes_odds_at_bet;
+          const potentialPayout = estimateOddsPayout(betCoins, lockedOdds);
+          toast.success(
+            `Bet placed at ${formatAmericanOdds(lockedOdds)}! Potential payout: ${formatCoins(potentialPayout)} coins.`
+          );
+        }
       } else {
         toast.success("Bet placed!");
       }
+
       router.refresh();
     } catch {
       toast.error("Network error. Please try again.");
@@ -167,16 +215,52 @@ export function BettingPanel({
           <span style={{ color: "var(--color-coin)" }}>
             {formatCoins(balance)} coins
           </span>
+          {isOU && market.ou_line !== null && (
+            <span>
+              {" · "}
+              <span
+                className="font-semibold"
+                style={{ color: "var(--color-primary)" }}
+              >
+                O/U {market.ou_line} {market.ou_unit}
+              </span>
+            </span>
+          )}
         </p>
       </div>
 
       <div className="p-4 space-y-4">
-        {/* YES / NO selector */}
+        {/* Calibration period notice */}
+        {isCalibrating && (
+          <div
+            className="rounded-lg px-3 py-2 text-xs"
+            style={{
+              backgroundColor: "rgba(245,158,11,0.1)",
+              border: "1px solid rgba(245,158,11,0.3)",
+              color: "var(--color-warning)",
+            }}
+          >
+            ⏳ Calibration period — max 100 coins ·{" "}
+            {betsRemaining} bet{betsRemaining !== 1 ? "s" : ""} left to unlock
+            full limits
+          </div>
+        )}
+
+        {/* Side selector */}
         <div className="grid grid-cols-2 gap-2">
           {(["yes", "no"] as const).map((side) => {
-            const prob = side === "yes" ? yesProb : noProb;
-            const odds = side === "yes" ? yesOdds : noOdds;
             const isSelected = selectedSide === side;
+            const label = isOU
+              ? side === "yes"
+                ? "OVER"
+                : "UNDER"
+              : side.toUpperCase();
+            const sublabel = isOU
+              ? "+100"
+              : formatAmericanOdds(side === "yes" ? yesOdds : noOdds) +
+                " · " +
+                formatProbability(side === "yes" ? yesProb : noProb);
+
             return (
               <button
                 key={side}
@@ -207,9 +291,9 @@ export function BettingPanel({
                   }`,
                 }}
               >
-                <span>{side.toUpperCase()}</span>
+                <span>{label}</span>
                 <span className="text-xs font-normal opacity-80">
-                  {formatAmericanOdds(odds)} · {formatProbability(prob)}
+                  {sublabel}
                 </span>
               </button>
             );
@@ -229,7 +313,7 @@ export function BettingPanel({
               <button
                 key={amount}
                 onClick={() => setCoinInput(amount.toString())}
-                disabled={amount > balance}
+                disabled={amount > balance || amount > effectiveMax}
                 className={cn(
                   "py-2 rounded-lg text-xs font-semibold transition-all duration-150",
                   "disabled:opacity-40 disabled:cursor-not-allowed"
@@ -268,7 +352,7 @@ export function BettingPanel({
               onChange={(e) => setCoinInput(e.target.value)}
               placeholder="Custom amount…"
               min={10}
-              max={Math.min(500, userBalance)}
+              max={Math.min(effectiveMax, balance)}
               className="w-full pl-9 pr-4 py-2.5 rounded-xl text-sm outline-none transition-all duration-150"
               style={{
                 backgroundColor: "var(--color-bg)",
@@ -298,43 +382,88 @@ export function BettingPanel({
           )}
         </div>
 
-        {/* Payout preview */}
-        {canPreview && previewPayout !== null && previewNewProb !== null && (
+        {/* Payout preview — Binary */}
+        {!isOU &&
+          canPreview &&
+          previewPayout !== null &&
+          previewNewProb !== null && (
+            <div
+              className="rounded-lg px-3 py-2.5 space-y-1"
+              style={{ backgroundColor: "var(--color-bg)" }}
+            >
+              <div className="flex justify-between text-xs">
+                <span style={{ color: "var(--color-ink-tertiary)" }}>
+                  Current {selectedSide.toUpperCase()} odds
+                </span>
+                <span
+                  className="font-medium"
+                  style={{ color: "var(--color-ink-primary)" }}
+                >
+                  {formatAmericanOdds(sideOdds)}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span style={{ color: "var(--color-ink-tertiary)" }}>
+                  New probability
+                </span>
+                <span
+                  className="font-medium"
+                  style={{ color: "var(--color-ink-primary)" }}
+                >
+                  {formatProbability(previewNewProb)}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span style={{ color: "var(--color-ink-tertiary)" }}>
+                  Payout if {selectedSide.toUpperCase()} wins
+                </span>
+                <span
+                  className="font-semibold"
+                  style={{ color: "var(--color-primary)" }}
+                >
+                  {formatCoins(previewPayout)} coins
+                </span>
+              </div>
+            </div>
+          )}
+
+        {/* Payout preview — O/U */}
+        {isOU && canPreview && ouPreviewPayout !== null && (
           <div
             className="rounded-lg px-3 py-2.5 space-y-1"
             style={{ backgroundColor: "var(--color-bg)" }}
           >
             <div className="flex justify-between text-xs">
               <span style={{ color: "var(--color-ink-tertiary)" }}>
-                Current {selectedSide.toUpperCase()} odds
+                Betting {sideLabel} at line
               </span>
               <span
                 className="font-medium"
                 style={{ color: "var(--color-ink-primary)" }}
               >
-                {formatAmericanOdds(sideOdds)}
+                {market.ou_line} {market.ou_unit}
               </span>
             </div>
             <div className="flex justify-between text-xs">
               <span style={{ color: "var(--color-ink-tertiary)" }}>
-                New probability
+                Line after this bet
               </span>
               <span
                 className="font-medium"
                 style={{ color: "var(--color-ink-primary)" }}
               >
-                {formatProbability(previewNewProb)}
+                {ouNewLine} {market.ou_unit}
               </span>
             </div>
             <div className="flex justify-between text-xs">
               <span style={{ color: "var(--color-ink-tertiary)" }}>
-                Payout if {selectedSide.toUpperCase()} wins
+                Payout if {sideLabel} wins
               </span>
               <span
                 className="font-semibold"
                 style={{ color: "var(--color-primary)" }}
               >
-                {formatCoins(previewPayout)} coins
+                {formatCoins(ouPreviewPayout)} coins
               </span>
             </div>
           </div>
@@ -350,13 +479,13 @@ export function BettingPanel({
             }}
             role="status"
           >
-            ✓ Bet placed at{" "}
-            {formatAmericanOdds(
-              selectedSide === "yes"
-                ? successResult.yes_odds_at_bet
-                : -successResult.yes_odds_at_bet
-            )}
-            !
+            {isOU
+              ? `✓ Bet placed ${sideLabel} ${(successResult as PlaceOuBetResult).ou_line_at_bet}! New line: ${(successResult as PlaceOuBetResult).new_line} ${market.ou_unit}`
+              : `✓ Bet placed at ${formatAmericanOdds(
+                  selectedSide === "yes"
+                    ? (successResult as PlaceBetResult).yes_odds_at_bet
+                    : -(successResult as PlaceBetResult).yes_odds_at_bet
+                )}!`}
           </div>
         )}
 
@@ -369,8 +498,7 @@ export function BettingPanel({
           isLoading={isLoading}
           disabled={!coinInput || (!!validation && !validation.valid)}
         >
-          Bet {selectedSide.toUpperCase()}{" "}
-          {coins > 0 ? `· ${formatCoins(coins)} coins` : ""}
+          Bet {sideLabel}{coins > 0 ? ` · ${formatCoins(coins)} coins` : ""}
         </Button>
 
         {/* Existing position notice */}
@@ -380,8 +508,18 @@ export function BettingPanel({
             style={{ color: "var(--color-ink-tertiary)" }}
           >
             You have an existing{" "}
-            <strong>{userPosition.side.toUpperCase()}</strong> position (
-            {formatCoins(userPosition.coins_wagered)} coins).
+            <strong>
+              {isOU
+                ? userPosition.side === "yes"
+                  ? "OVER"
+                  : "UNDER"
+                : userPosition.side.toUpperCase()}
+            </strong>{" "}
+            position ({formatCoins(userPosition.coins_wagered)} coins
+            {isOU && userPosition.ou_line_at_bet !== null
+              ? ` @ ${userPosition.ou_line_at_bet}`
+              : ""}
+            ).
           </p>
         )}
 

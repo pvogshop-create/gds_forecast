@@ -5,28 +5,64 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { americanOddsToProb } from "@/lib/market-logic";
 import type { MarketCategory } from "@/types/database";
+import type { MarketSuggestion } from "@/types/database";
 
 // ─── Create Market ────────────────────────────────────────────────────────────
 export async function createMarket(formData: FormData) {
   const user = await requireAdmin();
   const admin = createAdminClient();
 
-  const title = formData.get("title") as string;
-  const description = formData.get("description") as string;
+  const title = (formData.get("title") as string | null)?.trim() ?? "";
+  const description = (formData.get("description") as string | null)?.trim() ?? "";
   const category = formData.get("category") as MarketCategory;
   const resolutionDate = formData.get("resolution_date") as string | null;
   const isFeatured = formData.get("is_featured") === "true";
+  const marketType = (formData.get("market_type") as string | null) ?? "binary";
+  const initialOdds = parseInt((formData.get("initial_odds") as string | null) ?? "100", 10) || 100;
+  const ouLineRaw = parseFloat((formData.get("ou_line") as string | null) ?? "");
+  const ouLine = isNaN(ouLineRaw) ? null : ouLineRaw;
+  const ouUnit = (formData.get("ou_unit") as string | null)?.trim() || null;
 
-  const { error } = await admin.from("markets").insert({
-    title: title.trim(),
-    description: description.trim(),
-    category,
-    resolution_date: resolutionDate || null,
-    is_featured: isFeatured,
-    creator_id: user.id,
-    yes_pool: 100,
-    no_pool: 100,
-  });
+  if (!title || !description || !category) {
+    throw new Error("Missing required fields: title, description, and category are required.");
+  }
+
+  let marketInsert: Record<string, unknown>;
+
+  if (marketType === "over_under") {
+    if (!ouLine || !ouUnit) {
+      throw new Error("O/U markets require an opening line and unit.");
+    }
+    marketInsert = {
+      title,
+      description,
+      category,
+      resolution_date: resolutionDate || null,
+      is_featured: isFeatured,
+      creator_id: user.id,
+      market_type: "over_under",
+      ou_line: ouLine,
+      ou_opening_line: ouLine,
+      ou_unit: ouUnit,
+      yes_pool: 0,
+      no_pool: 0,
+    };
+  } else {
+    const p = americanOddsToProb(initialOdds);
+    const yesPool = Math.round(200 * p);
+    marketInsert = {
+      title,
+      description,
+      category,
+      resolution_date: resolutionDate || null,
+      is_featured: isFeatured,
+      creator_id: user.id,
+      yes_pool: yesPool,
+      no_pool: 200 - yesPool,
+    };
+  }
+
+  const { error } = await admin.from("markets").insert(marketInsert);
 
   if (error) throw new Error(`Failed to create market: ${error.message}`);
   revalidatePath("/admin");
@@ -104,9 +140,12 @@ export async function setMarketLine(marketId: string, yesOdds: number) {
 
 // ─── Approve Suggestion ───────────────────────────────────────────────────────
 // yesOdds: American odds for YES side (e.g. +150, -110). Defaults to +100 (even).
+// For O/U suggestions, yesOdds is ignored — odds are always +100.
+// ouLineOverride: optional admin-edited opening line for O/U markets.
 export async function approveSuggestion(
   suggestionId: string,
-  yesOdds: number = 100
+  yesOdds: number = 100,
+  ouLineOverride?: number
 ) {
   const user = await requireAdmin();
   const admin = createAdminClient();
@@ -120,22 +159,46 @@ export async function approveSuggestion(
 
   if (fetchError || !suggestion) throw new Error("Suggestion not found");
 
-  // Convert American odds to initial pool ratio (total starting pool = 200)
-  const p = americanOddsToProb(yesOdds);
-  const yesPool = Math.round(200 * p);
-  const noPool = 200 - yesPool;
+  const s = suggestion as MarketSuggestion;
+  const isOu = s.market_type === "over_under";
 
-  // Create market from suggestion with odds-derived initial pools
-  const { data: market, error: createError } = await admin
-    .from("markets")
-    .insert({
-      title: suggestion.title,
-      description: suggestion.description,
-      category: suggestion.category,
+  let marketInsert: Record<string, unknown>;
+
+  if (isOu) {
+    // Admin may override the opening line; fall back to the suggester's value
+    const ouLine = ouLineOverride ?? s.ou_opening_line;
+    // O/U markets start with 0/0 pools (no CPMM liquidity needed)
+    marketInsert = {
+      title: s.title,
+      description: s.description,
+      category: s.category,
+      creator_id: user.id,
+      market_type: "over_under",
+      ou_line: ouLine,
+      ou_opening_line: ouLine,
+      ou_unit: s.ou_unit,
+      yes_pool: 0,
+      no_pool: 0,
+    };
+  } else {
+    // Binary: convert American odds to initial pool ratio (total starting pool = 200)
+    const p = americanOddsToProb(yesOdds);
+    const yesPool = Math.round(200 * p);
+    const noPool = 200 - yesPool;
+    marketInsert = {
+      title: s.title,
+      description: s.description,
+      category: s.category,
       creator_id: user.id,
       yes_pool: yesPool,
       no_pool: noPool,
-    })
+    };
+  }
+
+  // Create market from suggestion
+  const { data: market, error: createError } = await admin
+    .from("markets")
+    .insert(marketInsert)
     .select("id")
     .single();
 
@@ -149,14 +212,38 @@ export async function approveSuggestion(
 
   // Notify the suggester
   await admin.from("notifications").insert({
-    user_id: suggestion.user_id,
+    user_id: s.user_id,
     type: "suggestion_approved",
     title: "Your suggestion was approved! 🎉",
-    body: `"${suggestion.title}" is now live as a market.`,
+    body: `"${s.title}" is now live as a market.`,
     data: { market_id: market.id, suggestion_id: suggestionId },
   });
 
   revalidatePath("/admin");
+}
+
+// ─── Resolve O/U Market ───────────────────────────────────────────────────────
+// Admin provides the actual numeric result.
+// Each position is resolved individually against its locked ou_line_at_bet.
+export async function resolveOuMarket(
+  marketId: string,
+  resultValue: number,
+  note?: string
+) {
+  const user = await requireAdmin();
+  const admin = createAdminClient();
+
+  const { error } = await admin.rpc("resolve_ou_market", {
+    p_market_id: marketId,
+    p_result_value: resultValue,
+    p_admin_id: user.id,
+    p_note: note ?? null,
+  });
+
+  if (error) throw new Error(`Failed to resolve O/U market: ${error.message}`);
+  revalidatePath("/admin");
+  revalidatePath(`/market/${marketId}`);
+  revalidatePath("/dashboard/trending");
 }
 
 // ─── Reject Suggestion ────────────────────────────────────────────────────────
@@ -197,21 +284,11 @@ export async function adjustUserBalance(
   await requireAdmin();
   const admin = createAdminClient();
 
-  // Fetch current balance, add/subtract, then update
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("coins")
-    .eq("id", userId)
-    .single();
-
-  if (!profile) throw new Error("User not found");
-
-  const newBalance = Math.max(0, profile.coins + amount);
-
-  const { error: updateError } = await admin
-    .from("profiles")
-    .update({ coins: newBalance })
-    .eq("id", userId);
+  // Atomic increment via SQL function — avoids TOCTOU race between read and write
+  const { error: updateError } = await admin.rpc("admin_adjust_balance", {
+    p_user_id: userId,
+    p_amount: amount,
+  });
 
   if (updateError)
     throw new Error(`Failed to adjust balance: ${updateError.message}`);

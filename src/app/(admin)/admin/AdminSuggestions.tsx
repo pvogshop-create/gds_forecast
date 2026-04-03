@@ -25,12 +25,37 @@ export function AdminSuggestions({ suggestions }: AdminSuggestionsProps) {
   const [isPending, startTransition] = useTransition();
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState("");
-  // Per-suggestion line override input (keyed by suggestion id)
+  // Per-suggestion binary odds override (keyed by suggestion id)
   const [lineOverrides, setLineOverrides] = useState<Record<string, string>>(
     {}
   );
+  // Per-suggestion O/U line override (keyed by suggestion id)
+  const [ouLineOverrides, setOuLineOverrides] = useState<Record<string, string>>({});
 
-  function handleApprove(id: string, suggestedOdds: number | null) {
+  function handleApprove(
+    id: string,
+    suggestedOdds: number | null,
+    marketType: string,
+    suggestedOuLine: number | null
+  ) {
+    if (marketType === "over_under") {
+      const rawOuOverride = ouLineOverrides[id]?.trim();
+      const ouOverride = rawOuOverride ? parseFloat(rawOuOverride) : undefined;
+      const effectiveOuLine =
+        ouOverride !== undefined && !isNaN(ouOverride)
+          ? ouOverride
+          : (suggestedOuLine ?? undefined);
+      startTransition(async () => {
+        try {
+          await approveSuggestion(id, 100, effectiveOuLine);
+          toast.success("Suggestion approved and O/U market created!");
+        } catch {
+          toast.error("Failed to approve suggestion.");
+        }
+      });
+      return;
+    }
+
     const rawOverride = lineOverrides[id]?.trim();
     const lineOverride = rawOverride
       ? parseAmericanOdds(rawOverride)
@@ -140,6 +165,17 @@ export function AdminSuggestions({ suggestions }: AdminSuggestionsProps) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
                         <CategoryBadge category={s.category} />
+                        {s.market_type === "over_under" && (
+                          <span
+                            className="text-xs font-medium px-1.5 py-0.5 rounded"
+                            style={{
+                              backgroundColor: "var(--color-primary-light)",
+                              color: "var(--color-primary)",
+                            }}
+                          >
+                            O/U
+                          </span>
+                        )}
                         <span
                           className="text-xs"
                           style={{ color: "var(--color-ink-tertiary)" }}
@@ -167,53 +203,122 @@ export function AdminSuggestions({ suggestions }: AdminSuggestionsProps) {
                     className="rounded-lg px-3 py-2.5 mb-3 space-y-2"
                     style={{ backgroundColor: "var(--color-bg)" }}
                   >
-                    <div className="flex items-center justify-between text-xs">
-                      <span style={{ color: "var(--color-ink-tertiary)" }}>
-                        Suggested line
-                      </span>
-                      <span
-                        className="font-medium"
-                        style={{ color: "var(--color-ink-primary)" }}
-                      >
-                        YES {formatAmericanOdds(defaultOdds)} / NO{" "}
-                        {formatAmericanOdds(-defaultOdds)}
-                      </span>
-                    </div>
-                    <div>
-                      <input
-                        type="text"
-                        value={lineOverrides[s.id] ?? ""}
-                        onChange={(e) =>
-                          setLineOverrides((prev) => ({
-                            ...prev,
-                            [s.id]: e.target.value,
-                          }))
-                        }
-                        placeholder={`Override (e.g. ${formatAmericanOdds(defaultOdds)})`}
-                        className="w-full px-2.5 py-1.5 rounded-lg text-xs outline-none transition-all duration-150"
-                        style={{
-                          backgroundColor: "var(--color-bg-card)",
-                          border: `1px solid ${overrideError ? "var(--color-danger)" : "var(--color-border)"}`,
-                          color: "var(--color-ink-primary)",
-                        }}
-                      />
-                      {overrideError ? (
-                        <p
-                          className="text-xs mt-1"
-                          style={{ color: "var(--color-danger)" }}
-                        >
-                          {overrideError} — use e.g. +150, -110
-                        </p>
-                      ) : parsedOverride !== null ? (
-                        <p
-                          className="text-xs mt-1"
-                          style={{ color: "var(--color-ink-tertiary)" }}
-                        >
-                          Will use YES {formatAmericanOdds(effectiveOdds)} / NO{" "}
-                          {formatAmericanOdds(-effectiveOdds)}
-                        </p>
-                      ) : null}
-                    </div>
+                    {s.market_type === "over_under" ? (
+                      // O/U suggestion: editable opening line override
+                      (() => {
+                        const rawOuOverride = ouLineOverrides[s.id]?.trim() ?? "";
+                        const parsedOuOverride = rawOuOverride ? parseFloat(rawOuOverride) : null;
+                        const ouOverrideError =
+                          rawOuOverride &&
+                          (isNaN(parsedOuOverride ?? NaN) || (parsedOuOverride ?? 0) <= 0)
+                            ? "Must be a positive number"
+                            : null;
+                        const effectiveLine =
+                          parsedOuOverride !== null && !ouOverrideError
+                            ? parsedOuOverride
+                            : s.ou_opening_line;
+                        return (
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span style={{ color: "var(--color-ink-tertiary)" }}>
+                                Opening line
+                              </span>
+                              <span
+                                className="text-xs"
+                                style={{ color: "var(--color-ink-tertiary)" }}
+                              >
+                                suggested: {s.ou_opening_line} {s.ou_unit}
+                              </span>
+                            </div>
+                            <input
+                              type="number"
+                              step="0.5"
+                              min="0.5"
+                              value={ouLineOverrides[s.id] ?? (s.ou_opening_line?.toString() ?? "")}
+                              onChange={(e) =>
+                                setOuLineOverrides((prev) => ({
+                                  ...prev,
+                                  [s.id]: e.target.value,
+                                }))
+                              }
+                              placeholder={s.ou_opening_line?.toString() ?? "e.g. 3.5"}
+                              className="w-full px-2.5 py-1.5 rounded-lg text-xs outline-none transition-all duration-150"
+                              style={{
+                                backgroundColor: "var(--color-bg-card)",
+                                border: `1px solid ${ouOverrideError ? "var(--color-danger)" : "var(--color-border)"}`,
+                                color: "var(--color-ink-primary)",
+                              }}
+                            />
+                            {ouOverrideError ? (
+                              <p
+                                className="text-xs"
+                                style={{ color: "var(--color-danger)" }}
+                              >
+                                {ouOverrideError}
+                              </p>
+                            ) : (
+                              <p
+                                className="text-xs"
+                                style={{ color: "var(--color-ink-tertiary)" }}
+                              >
+                                Will open at O/U {effectiveLine} {s.ou_unit} · +100 both sides
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      // Binary suggestion: show YES/NO odds + allow admin override
+                      <>
+                        <div className="flex items-center justify-between text-xs">
+                          <span style={{ color: "var(--color-ink-tertiary)" }}>
+                            Suggested line
+                          </span>
+                          <span
+                            className="font-medium"
+                            style={{ color: "var(--color-ink-primary)" }}
+                          >
+                            YES {formatAmericanOdds(defaultOdds)} / NO{" "}
+                            {formatAmericanOdds(-defaultOdds)}
+                          </span>
+                        </div>
+                        <div>
+                          <input
+                            type="text"
+                            value={lineOverrides[s.id] ?? ""}
+                            onChange={(e) =>
+                              setLineOverrides((prev) => ({
+                                ...prev,
+                                [s.id]: e.target.value,
+                              }))
+                            }
+                            placeholder={`Override (e.g. ${formatAmericanOdds(defaultOdds)})`}
+                            className="w-full px-2.5 py-1.5 rounded-lg text-xs outline-none transition-all duration-150"
+                            style={{
+                              backgroundColor: "var(--color-bg-card)",
+                              border: `1px solid ${overrideError ? "var(--color-danger)" : "var(--color-border)"}`,
+                              color: "var(--color-ink-primary)",
+                            }}
+                          />
+                          {overrideError ? (
+                            <p
+                              className="text-xs mt-1"
+                              style={{ color: "var(--color-danger)" }}
+                            >
+                              {overrideError} — use e.g. +150, -110
+                            </p>
+                          ) : parsedOverride !== null ? (
+                            <p
+                              className="text-xs mt-1"
+                              style={{ color: "var(--color-ink-tertiary)" }}
+                            >
+                              Will use YES {formatAmericanOdds(effectiveOdds)} / NO{" "}
+                              {formatAmericanOdds(-effectiveOdds)}
+                            </p>
+                          ) : null}
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   {rejectingId === s.id && (
@@ -238,9 +343,17 @@ export function AdminSuggestions({ suggestions }: AdminSuggestionsProps) {
                       variant="primary"
                       size="sm"
                       className="flex-1"
-                      onClick={() => handleApprove(s.id, s.suggested_yes_odds)}
+                      onClick={() =>
+                        handleApprove(s.id, s.suggested_yes_odds, s.market_type, s.ou_opening_line)
+                      }
                       isLoading={isPending}
-                      disabled={!!overrideError}
+                      disabled={(() => {
+                        if (s.market_type === "binary") return !!overrideError;
+                        const raw = ouLineOverrides[s.id]?.trim() ?? "";
+                        if (!raw) return false;
+                        const v = parseFloat(raw);
+                        return isNaN(v) || v <= 0;
+                      })()}
                     >
                       ✓ Approve
                     </Button>
