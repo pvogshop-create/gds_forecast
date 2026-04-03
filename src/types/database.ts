@@ -23,6 +23,8 @@ export type NotificationType =
   | "league_joined"
   | "league_invite";
 
+export type IncidentStatus = "voting" | "passed" | "vetoed" | "resolved" | "dismissed";
+
 export interface Profile {
   id: string;
   username: string | null;
@@ -31,6 +33,10 @@ export interface Profile {
   coins: number;
   total_bets: number;
   wins: number;
+  last_daily_claim: string | null;
+  referral_code: string | null;
+  referral_count: number;
+  referred_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -195,6 +201,34 @@ export interface PlaceOuBetResult {
   coins_spent: number;
   coins_remaining: number;
   potential_payout: number; // always coins_spent × 2
+}
+
+// ─── Incident Reports ─────────────────────────────────────────────────────────
+
+export interface IncidentReport {
+  id: string;
+  market_id: string;
+  reporter_id: string;
+  description: string;
+  proposed_outcome: string; // 'yes' | 'no' | numeric string for O/U
+  status: IncidentStatus;
+  yes_votes: number;
+  no_votes: number;
+  veto_deadline: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IncidentVote {
+  report_id: string;
+  user_id: string;
+  agrees: boolean;
+  created_at: string;
+}
+
+export interface IncidentReportWithMarket extends IncidentReport {
+  markets: Pick<Market, "id" | "title" | "category" | "status" | "market_type">;
+  incident_votes: Pick<IncidentVote, "user_id" | "agrees">[];
 }
 
 // ─── Resolve market function return type ─────────────────────────────────────

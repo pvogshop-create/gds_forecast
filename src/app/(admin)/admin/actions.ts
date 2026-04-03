@@ -304,3 +304,65 @@ export async function adjustUserBalance(
 
   revalidatePath("/admin");
 }
+
+// ─── Incident Report: Veto ────────────────────────────────────────────────────
+export async function vetoIncident(reportId: string) {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { error } = await admin
+    .from("incident_reports")
+    .update({ status: "vetoed", updated_at: new Date().toISOString() })
+    .eq("id", reportId)
+    .in("status", ["voting", "passed"]);
+
+  if (error) throw new Error(`Failed to veto incident: ${error.message}`);
+
+  revalidatePath("/admin");
+}
+
+// ─── Incident Report: Resolve from incident ───────────────────────────────────
+export async function resolveFromIncident(reportId: string) {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  // Fetch the incident report with market info
+  const { data: report, error: fetchError } = await admin
+    .from("incident_reports")
+    .select("*, markets (id, market_type, status)")
+    .eq("id", reportId)
+    .single();
+
+  if (fetchError || !report) {
+    throw new Error("Incident report not found.");
+  }
+
+  const market = (report as { markets: { id: string; market_type: string; status: string } }).markets;
+
+  if (!market || !["open", "closed"].includes(market.status)) {
+    throw new Error("Market cannot be resolved from this state.");
+  }
+
+  const outcome = report.proposed_outcome as string;
+
+  if (market.market_type === "over_under") {
+    const resultValue = parseFloat(outcome);
+    if (isNaN(resultValue)) {
+      throw new Error("Invalid O/U result value in incident report.");
+    }
+    await resolveOuMarket(market.id, resultValue, `Community incident report #${reportId}`);
+  } else {
+    if (outcome !== "yes" && outcome !== "no") {
+      throw new Error("Invalid binary outcome in incident report.");
+    }
+    await resolveMarket(market.id, outcome as "yes" | "no", `Community incident report #${reportId}`);
+  }
+
+  // Mark incident as resolved
+  await admin
+    .from("incident_reports")
+    .update({ status: "resolved", updated_at: new Date().toISOString() })
+    .eq("id", reportId);
+
+  revalidatePath("/admin");
+}

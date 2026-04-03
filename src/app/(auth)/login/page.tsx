@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { LoginButton } from "./LoginButton";
@@ -98,7 +99,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </div>
         )}
 
-        <LoginButton />
+        <Suspense fallback={null}>
+          <LoginButton />
+        </Suspense>
 
         <p
           className="text-xs text-center mt-5 play-money-badge"

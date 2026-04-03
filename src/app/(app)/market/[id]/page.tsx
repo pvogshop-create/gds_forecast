@@ -6,6 +6,8 @@ import { BettingPanel } from "@/components/markets/BettingPanel";
 import { ProbabilityChart } from "@/components/markets/ProbabilityChart";
 import { ActivityFeed } from "@/components/feed/ActivityFeed";
 import { ToastContainer } from "@/components/ui/Toast";
+import { ReportOutcomeForm } from "./ReportOutcomeForm";
+import { IncidentVoteButtons } from "@/app/(app)/more/IncidentVoteButtons";
 import {
   formatProbability,
   formatCoins,
@@ -17,6 +19,8 @@ import type {
   MarketProbabilityHistory,
   ActivityFeedEntryWithProfile,
   Profile,
+  IncidentReport,
+  IncidentVote,
 } from "@/types/database";
 
 interface MarketPageProps {
@@ -33,7 +37,7 @@ export default async function MarketPage({
   const { side: initialSide } = await searchParams;
   const supabase = await createClient();
 
-  const [marketResult, historyResult, positionResult, activityResult, profileResult, betCountResult] =
+  const [marketResult, historyResult, positionResult, activityResult, profileResult, betCountResult, incidentResult] =
     await Promise.all([
       supabase.from("markets").select("*").eq("id", id).single(),
 
@@ -71,6 +75,14 @@ export default async function MarketPage({
         .from("positions")
         .select("*", { count: "exact", head: true })
         .eq("market_id", id),
+
+      // Active incident report for this market
+      supabase
+        .from("incident_reports")
+        .select("*, incident_votes (user_id, agrees)")
+        .eq("market_id", id)
+        .in("status", ["voting", "passed"])
+        .maybeSingle(),
     ]);
 
   if (!marketResult.data) notFound();
@@ -81,6 +93,14 @@ export default async function MarketPage({
   const activity = (activityResult.data ?? []) as ActivityFeedEntryWithProfile[];
   const profile = profileResult.data as Pick<Profile, "coins"> | null;
   const marketBetCount = betCountResult.count ?? 0;
+
+  type IncidentReportWithVotes = IncidentReport & {
+    incident_votes: Pick<IncidentVote, "user_id" | "agrees">[];
+  };
+  const activeIncident = incidentResult.data as IncidentReportWithVotes | null;
+  const canReport =
+    !activeIncident &&
+    (market.status === "open" || market.status === "closed");
 
   const isOU = market.market_type === "over_under";
   const totalPool = market.yes_pool + market.no_pool;
@@ -320,6 +340,109 @@ export default async function MarketPage({
           initialSide === "yes" || initialSide === "no" ? initialSide : "yes"
         }
       />
+
+      {/* Incident report widget */}
+      {activeIncident && (() => {
+        const myVote = activeIncident.incident_votes.find(
+          (v) => v.user_id === user.id
+        );
+        const total = activeIncident.yes_votes + activeIncident.no_votes;
+        const agreeRate =
+          total > 0 ? Math.round((activeIncident.yes_votes / total) * 100) : 0;
+        const isPassed = activeIncident.status === "passed";
+        return (
+          <div
+            className="rounded-xl overflow-hidden"
+            style={{
+              backgroundColor: "var(--color-bg-card)",
+              border: `1px solid ${isPassed ? "var(--color-yes)" : "var(--color-border)"}`,
+              boxShadow: "var(--shadow-card)",
+            }}
+          >
+            <div
+              className="px-4 py-3 flex items-center justify-between"
+              style={{ borderBottom: "1px solid var(--color-border)" }}
+            >
+              <h2
+                className="text-sm font-semibold"
+                style={{ color: "var(--color-ink-primary)" }}
+              >
+                Community Incident Report
+              </h2>
+              <span
+                className="px-2 py-0.5 rounded-full text-[10px] font-bold"
+                style={{
+                  backgroundColor: isPassed
+                    ? "var(--color-yes-bg)"
+                    : "var(--color-primary-light)",
+                  color: isPassed ? "var(--color-yes)" : "var(--color-primary)",
+                }}
+              >
+                {isPassed ? "PASSED" : "VOTING"}
+              </span>
+            </div>
+            <div className="px-4 py-3">
+              <p
+                className="text-sm mb-1"
+                style={{ color: "var(--color-ink-secondary)" }}
+              >
+                {activeIncident.description}
+              </p>
+              <p
+                className="text-xs mb-3"
+                style={{ color: "var(--color-ink-tertiary)" }}
+              >
+                Proposed outcome:{" "}
+                <span
+                  className="font-semibold"
+                  style={{ color: "var(--color-ink-primary)" }}
+                >
+                  {activeIncident.proposed_outcome.toUpperCase()}
+                </span>
+              </p>
+              <div className="mb-3">
+                <div
+                  className="h-1.5 rounded-full overflow-hidden"
+                  style={{ backgroundColor: "var(--color-border)" }}
+                >
+                  {total > 0 && (
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${agreeRate}%`,
+                        backgroundColor:
+                          agreeRate >= 60 ? "var(--color-yes)" : "var(--color-no)",
+                      }}
+                    />
+                  )}
+                </div>
+                <p
+                  className="text-xs mt-1"
+                  style={{ color: "var(--color-ink-tertiary)" }}
+                >
+                  {total === 0
+                    ? "No votes yet"
+                    : `${activeIncident.yes_votes} agree · ${activeIncident.no_votes} disagree · ${agreeRate}%`}
+                </p>
+              </div>
+              <IncidentVoteButtons
+                reportId={activeIncident.id}
+                userVote={myVote ? myVote.agrees : null}
+                isReporter={activeIncident.reporter_id === user.id}
+                isOpen={activeIncident.status === "voting"}
+              />
+            </div>
+          </div>
+        );
+      })()}
+
+      {canReport && (
+        <ReportOutcomeForm
+          marketId={market.id}
+          marketType={market.market_type}
+          ouUnit={market.ou_unit}
+        />
+      )}
 
       {/* Market activity */}
       {activity.length > 0 && (

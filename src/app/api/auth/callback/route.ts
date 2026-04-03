@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function GET(request: NextRequest) {
@@ -6,6 +7,7 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type");
+  const ref = searchParams.get("ref");
   // Guard against open-redirect: only allow same-origin relative paths
   const rawNext = searchParams.get("next") ?? "/dashboard/trending";
   const next =
@@ -65,7 +67,23 @@ export async function GET(request: NextRequest) {
     .eq("id", userId)
     .single();
 
-  if (!profile?.username) {
+  const isNewUser = !profile?.username;
+
+  // ── Process referral for new users ────────────────────────────────────────
+  if (isNewUser && ref && ref.length > 0) {
+    try {
+      const admin = createAdminClient();
+      await admin.rpc("record_referral", {
+        p_new_user_id: userId,
+        p_referral_code: ref.toUpperCase(),
+      });
+    } catch (err) {
+      // Non-fatal: log but don't block sign-in
+      console.error("Referral recording failed:", err);
+    }
+  }
+
+  if (isNewUser) {
     return NextResponse.redirect(new URL("/onboarding", origin));
   }
 

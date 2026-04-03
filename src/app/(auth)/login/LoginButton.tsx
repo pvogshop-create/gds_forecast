@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type Mode = "idle" | "loading" | "sent" | "error";
 
@@ -9,6 +10,8 @@ export function LoginButton() {
   const [email, setEmail] = useState("");
   const [mode, setMode] = useState<Mode>("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const searchParams = useSearchParams();
+  const ref = searchParams.get("ref");
 
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
@@ -31,10 +34,15 @@ export function LoginButton() {
     setErrorMsg("");
     const supabase = createClient();
 
+    // Pass referral code through the auth redirect so the callback can record it
+    const callbackUrl = ref
+      ? `${window.location.origin}/api/auth/callback?ref=${encodeURIComponent(ref)}`
+      : `${window.location.origin}/api/auth/callback`;
+
     const { error } = await supabase.auth.signInWithOtp({
       email: trimmed,
       options: {
-        emailRedirectTo: `${window.location.origin}/api/auth/callback`,
+        emailRedirectTo: callbackUrl,
         shouldCreateUser: true,
       },
     });

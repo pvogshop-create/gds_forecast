@@ -11,6 +11,8 @@ import { CategoryBadge, StatusBadge } from "@/components/ui/Badge";
 import { markAllNotificationsRead } from "@/app/(app)/notifications/actions";
 import { formatRelativeTime, formatCoins } from "@/lib/utils";
 import { probToAmericanOdds, formatAmericanOdds } from "@/lib/market-logic";
+import { EarnCoinsCard } from "./EarnCoinsCard";
+import { IncidentVoteButtons } from "./IncidentVoteButtons";
 import type {
   Notification,
   ActivityFeedEntryWithProfile,
@@ -19,9 +21,10 @@ import type {
   League,
   LeagueMember,
   PositionWithMarket,
+  IncidentReportWithMarket,
 } from "@/types/database";
 
-type TabId = "bets" | "notifications" | "suggest" | "leagues";
+type TabId = "bets" | "notifications" | "suggest" | "leagues" | "reports";
 
 export default async function MorePage({
   searchParams,
@@ -30,7 +33,10 @@ export default async function MorePage({
 }) {
   const { tab: rawTab } = await searchParams;
   const tab: TabId =
-    rawTab === "notifications" || rawTab === "suggest" || rawTab === "leagues"
+    rawTab === "notifications" ||
+    rawTab === "suggest" ||
+    rawTab === "leagues" ||
+    rawTab === "reports"
       ? rawTab
       : "bets";
 
@@ -39,17 +45,29 @@ export default async function MorePage({
 
   // ── My Bets tab ────────────────────────────────────────────────────────────
   let positions: PositionWithMarket[] = [];
+  let profileData: Pick<
+    Profile,
+    "last_daily_claim" | "referral_code" | "referral_count"
+  > | null = null;
 
   if (tab === "bets") {
-    const { data } = await supabase
-      .from("positions")
-      .select(
-        `*, markets (id, title, category, status, market_type, yes_probability, ou_line, ou_unit, resolution_date)`
-      )
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .limit(100);
-    positions = (data ?? []) as PositionWithMarket[];
+    const [posResult, profResult] = await Promise.all([
+      supabase
+        .from("positions")
+        .select(
+          `*, markets (id, title, category, status, market_type, yes_probability, ou_line, ou_unit, resolution_date)`
+        )
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(100),
+      supabase
+        .from("profiles")
+        .select("last_daily_claim, referral_code, referral_count")
+        .eq("id", user.id)
+        .single(),
+    ]);
+    positions = (posResult.data ?? []) as PositionWithMarket[];
+    profileData = profResult.data as unknown as Pick<Profile, "last_daily_claim" | "referral_code" | "referral_count"> | null;
   }
 
   // ── Notifications tab ──────────────────────────────────────────────────────
@@ -133,6 +151,21 @@ export default async function MorePage({
     }
   }
 
+  // ── Reports tab ────────────────────────────────────────────────────────────
+  let incidentReports: IncidentReportWithMarket[] = [];
+
+  if (tab === "reports") {
+    const { data } = await supabase
+      .from("incident_reports")
+      .select(
+        `*, markets (id, title, category, status, market_type), incident_votes (user_id, agrees)`
+      )
+      .in("status", ["voting", "passed"])
+      .order("created_at", { ascending: false })
+      .limit(50);
+    incidentReports = (data ?? []) as IncidentReportWithMarket[];
+  }
+
   const unreadCount = notifications.filter((n) => !n.is_read).length;
 
   // ── Bets: group by status ──────────────────────────────────────────────────
@@ -152,7 +185,7 @@ export default async function MorePage({
     <div className="space-y-4">
       {/* Tab bar */}
       <nav
-        className="flex gap-1 rounded-xl p-1"
+        className="flex gap-1 rounded-xl p-1 overflow-x-auto"
         style={{
           backgroundColor: "var(--color-bg-card)",
           border: "1px solid var(--color-border)",
@@ -169,6 +202,7 @@ export default async function MorePage({
             },
             { id: "suggest" as TabId, label: "Suggest", badge: null },
             { id: "leagues" as TabId, label: "Leagues", badge: null },
+            { id: "reports" as TabId, label: "Reports", badge: null },
           ] as const
         ).map(({ id, label, badge }) => {
           const isActive = tab === id;
@@ -176,7 +210,7 @@ export default async function MorePage({
             <Link
               key={id}
               href={`/more?tab=${id}`}
-              className="flex items-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium transition-all duration-150 flex-1 justify-center"
+              className="flex items-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium transition-all duration-150 flex-1 justify-center whitespace-nowrap"
               style={{
                 backgroundColor: isActive ? "var(--color-bg)" : "transparent",
                 color: isActive
@@ -206,6 +240,13 @@ export default async function MorePage({
       {/* ── My Bets ───────────────────────────────────────────────────────── */}
       {tab === "bets" && (
         <div className="space-y-4">
+          {/* Earn Coins card */}
+          <EarnCoinsCard
+            lastDailyClaim={profileData?.last_daily_claim ?? null}
+            referralCode={profileData?.referral_code ?? null}
+            referralCount={profileData?.referral_count ?? 0}
+          />
+
           {/* Stats strip */}
           {positions.length > 0 && (
             <div
@@ -296,15 +337,12 @@ export default async function MorePage({
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Open bets */}
               {openBets.length > 0 && (
                 <BetsSection title="Open" bets={openBets} />
               )}
-              {/* Won bets */}
               {wonBets.length > 0 && (
                 <BetsSection title="Won" bets={wonBets} />
               )}
-              {/* Lost / cancelled */}
               {closedBets.length > 0 && (
                 <BetsSection title="Lost / Cancelled" bets={closedBets} />
               )}
@@ -572,6 +610,192 @@ export default async function MorePage({
                   memberCount={memberCounts[league.id] ?? 0}
                 />
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Reports ───────────────────────────────────────────────────────── */}
+      {tab === "reports" && (
+        <div className="space-y-4">
+          <div>
+            <h1
+              className="text-xl font-bold"
+              style={{ color: "var(--color-ink-primary)" }}
+            >
+              Incident Reports
+            </h1>
+            <p
+              className="text-sm mt-1"
+              style={{ color: "var(--color-ink-secondary)" }}
+            >
+              Vote on whether these events actually happened. 4+ votes at 60%
+              agreement triggers auto-resolution.
+            </p>
+          </div>
+
+          {incidentReports.length === 0 ? (
+            <div
+              className="rounded-xl p-10 text-center"
+              style={{
+                backgroundColor: "var(--color-bg-card)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              <div className="text-4xl mb-3">🔍</div>
+              <p
+                className="font-medium text-sm"
+                style={{ color: "var(--color-ink-primary)" }}
+              >
+                No active incident reports.
+              </p>
+              <p
+                className="text-xs mt-1"
+                style={{ color: "var(--color-ink-tertiary)" }}
+              >
+                Visit a market page to report that an outcome has occurred.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {incidentReports.map((report) => {
+                const myVote = report.incident_votes.find(
+                  (v) => v.user_id === user.id
+                );
+                const total = report.yes_votes + report.no_votes;
+                const agreeRate =
+                  total > 0 ? Math.round((report.yes_votes / total) * 100) : 0;
+                const isPassed = report.status === "passed";
+                const isVoting = report.status === "voting";
+
+                // Time until auto-resolve (when passed)
+                let vetoCountdown: string | null = null;
+                if (isPassed && report.veto_deadline) {
+                  const ms =
+                    new Date(report.veto_deadline).getTime() - Date.now();
+                  if (ms > 0) {
+                    const h = Math.floor(ms / (1000 * 60 * 60));
+                    const m = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+                    vetoCountdown = h > 0 ? `${h}h ${m}m` : `${m}m`;
+                  } else {
+                    vetoCountdown = "resolving soon";
+                  }
+                }
+
+                return (
+                  <div
+                    key={report.id}
+                    className="rounded-xl overflow-hidden"
+                    style={{
+                      backgroundColor: "var(--color-bg-card)",
+                      border: `1px solid ${isPassed ? "var(--color-yes)" : "var(--color-border)"}`,
+                      boxShadow: "var(--shadow-card)",
+                    }}
+                  >
+                    <div className="px-4 py-3">
+                      {/* Header */}
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <Link
+                          href={`/market/${report.markets.id}`}
+                          className="text-sm font-medium leading-snug hover:underline flex-1 min-w-0"
+                          style={{
+                            color: "var(--color-ink-primary)",
+                            textDecorationColor: "var(--color-primary)",
+                          }}
+                        >
+                          {report.markets.title}
+                        </Link>
+                        <span
+                          className="flex-shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold"
+                          style={{
+                            backgroundColor: isPassed
+                              ? "var(--color-yes-bg)"
+                              : "var(--color-primary-light)",
+                            color: isPassed
+                              ? "var(--color-yes)"
+                              : "var(--color-primary)",
+                          }}
+                        >
+                          {isPassed ? "PASSED" : "VOTING"}
+                        </span>
+                      </div>
+
+                      {/* Description */}
+                      <p
+                        className="text-xs mb-2 line-clamp-2"
+                        style={{ color: "var(--color-ink-secondary)" }}
+                      >
+                        {report.description}
+                      </p>
+
+                      {/* Proposed outcome */}
+                      <p
+                        className="text-xs mb-3"
+                        style={{ color: "var(--color-ink-tertiary)" }}
+                      >
+                        Proposed outcome:{" "}
+                        <span
+                          className="font-semibold"
+                          style={{ color: "var(--color-ink-primary)" }}
+                        >
+                          {report.proposed_outcome.toUpperCase()}
+                        </span>
+                      </p>
+
+                      {/* Vote bar */}
+                      <div className="mb-3">
+                        <div
+                          className="h-1.5 rounded-full overflow-hidden"
+                          style={{ backgroundColor: "var(--color-border)" }}
+                        >
+                          {total > 0 && (
+                            <div
+                              className="h-full rounded-full transition-all duration-300"
+                              style={{
+                                width: `${agreeRate}%`,
+                                backgroundColor:
+                                  agreeRate >= 60
+                                    ? "var(--color-yes)"
+                                    : "var(--color-no)",
+                              }}
+                            />
+                          )}
+                        </div>
+                        <p
+                          className="text-xs mt-1"
+                          style={{ color: "var(--color-ink-tertiary)" }}
+                        >
+                          {total === 0
+                            ? "No votes yet"
+                            : `${report.yes_votes} agree · ${report.no_votes} disagree · ${agreeRate}%`}
+                        </p>
+                      </div>
+
+                      {/* Footer row */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <IncidentVoteButtons
+                          reportId={report.id}
+                          userVote={myVote ? myVote.agrees : null}
+                          isReporter={report.reporter_id === user.id}
+                          isOpen={isVoting}
+                        />
+                        {isPassed && vetoCountdown && (
+                          <span
+                            className="text-xs"
+                            style={{ color: "var(--color-yes)" }}
+                          >
+                            Auto-resolves in {vetoCountdown}
+                          </span>
+                        )}
+                        <CategoryBadge
+                          category={report.markets.category}
+                          className="flex-shrink-0"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
