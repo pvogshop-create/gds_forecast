@@ -13,6 +13,8 @@ import {
   Coins,
   Settings,
   LogOut,
+  Wallet,
+  Flag,
 } from "lucide-react";
 import { cn, formatCoins, getInitials } from "@/lib/utils";
 import type { Profile } from "@/types/database";
@@ -27,6 +29,8 @@ const NAV_ITEMS = [
 ] as const;
 
 const SECONDARY_NAV = [
+  { label: "My Bets", href: "/more?tab=bets", icon: Wallet },
+  { label: "Reports", href: "/more?tab=reports", icon: Flag },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Leagues", href: "/leagues", icon: Shield },
   { label: "Suggest a Line", href: "/suggest", icon: Plus },
@@ -140,7 +144,8 @@ export function Sidebar({ profile, className, isAdmin }: SidebarProps) {
       {/* Secondary navigation */}
       <nav className="px-3 pt-2" aria-label="Secondary navigation">
         {SECONDARY_NAV.map(({ label, href, icon: Icon }) => {
-          const isActive = pathname.startsWith(href);
+          const hrefPath = href.split("?")[0];
+          const isActive = pathname === hrefPath || pathname.startsWith(hrefPath + "/");
           return (
             <Link
               key={href}
