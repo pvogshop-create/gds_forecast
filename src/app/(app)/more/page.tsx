@@ -13,6 +13,7 @@ import { formatRelativeTime, formatCoins } from "@/lib/utils";
 import { probToAmericanOdds, formatAmericanOdds } from "@/lib/market-logic";
 import { EarnCoinsCard } from "./EarnCoinsCard";
 import { IncidentVoteButtons } from "./IncidentVoteButtons";
+import { SubmitReportForm } from "./SubmitReportForm";
 import type {
   Notification,
   ActivityFeedEntryWithProfile,
@@ -22,6 +23,7 @@ import type {
   LeagueMember,
   PositionWithMarket,
   IncidentReportWithMarket,
+  Market,
 } from "@/types/database";
 
 type TabId = "bets" | "notifications" | "suggest" | "leagues" | "reports";
@@ -153,17 +155,27 @@ export default async function MorePage({
 
   // ── Reports tab ────────────────────────────────────────────────────────────
   let incidentReports: IncidentReportWithMarket[] = [];
+  let reportableMarkets: Pick<Market, "id" | "title" | "market_type" | "ou_unit">[] = [];
 
   if (tab === "reports") {
-    const { data } = await supabase
-      .from("incident_reports")
-      .select(
-        `*, markets (id, title, category, status, market_type), incident_votes (user_id, agrees)`
-      )
-      .in("status", ["voting", "passed"])
-      .order("created_at", { ascending: false })
-      .limit(50);
-    incidentReports = (data ?? []) as IncidentReportWithMarket[];
+    const [reportsResult, marketsResult] = await Promise.all([
+      supabase
+        .from("incident_reports")
+        .select(
+          `*, markets (id, title, category, status, market_type), incident_votes (user_id, agrees)`
+        )
+        .in("status", ["voting", "passed"])
+        .order("created_at", { ascending: false })
+        .limit(50),
+      supabase
+        .from("markets")
+        .select("id, title, market_type, ou_unit")
+        .in("status", ["open", "closed"])
+        .order("created_at", { ascending: false })
+        .limit(100),
+    ]);
+    incidentReports = (reportsResult.data ?? []) as IncidentReportWithMarket[];
+    reportableMarkets = (marketsResult.data ?? []) as Pick<Market, "id" | "title" | "market_type" | "ou_unit">[];
   }
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
@@ -183,9 +195,9 @@ export default async function MorePage({
 
   return (
     <div className="space-y-4">
-      {/* Tab bar */}
+      {/* Tab bar — mobile only; desktop uses sidebar links */}
       <nav
-        className="flex gap-1 rounded-xl p-1 overflow-x-auto"
+        className="flex gap-1 rounded-xl p-1 overflow-x-auto lg:hidden"
         style={{
           backgroundColor: "var(--color-bg-card)",
           border: "1px solid var(--color-border)",
@@ -634,6 +646,9 @@ export default async function MorePage({
             </p>
           </div>
 
+          {/* Submit report form */}
+          <SubmitReportForm markets={reportableMarkets} />
+
           {incidentReports.length === 0 ? (
             <div
               className="rounded-xl p-10 text-center"
@@ -653,7 +668,7 @@ export default async function MorePage({
                 className="text-xs mt-1"
                 style={{ color: "var(--color-ink-tertiary)" }}
               >
-                Visit a market page to report that an outcome has occurred.
+                Use the form above to report that an outcome has occurred.
               </p>
             </div>
           ) : (
