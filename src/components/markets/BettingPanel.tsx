@@ -27,8 +27,9 @@ import type {
 
 const PRESET_AMOUNTS = [10, 50, 100, 500] as const;
 
-const CALIBRATION_BETS = 5;
-const CALIBRATION_MAX = 100;
+// Calibration: first 3 bets on a new market have stepped max bets.
+// After 3 bets, no cap (enforced by user balance only).
+const CALIBRATION_STEPS = [200, 300, 400] as const;
 
 interface BettingPanelProps {
   market: Market;
@@ -58,9 +59,11 @@ export function BettingPanel({
   >(null);
   const [balance, setBalance] = useState(userBalance);
 
-  const isCalibrating = marketBetCount < CALIBRATION_BETS;
-  const effectiveMax = isCalibrating ? CALIBRATION_MAX : 500;
-  const betsRemaining = Math.max(0, CALIBRATION_BETS - marketBetCount);
+  const isCalibrating = marketBetCount < CALIBRATION_STEPS.length;
+  const effectiveMax = isCalibrating
+    ? (CALIBRATION_STEPS[marketBetCount] ?? balance)
+    : balance;
+  const betsRemaining = Math.max(0, CALIBRATION_STEPS.length - marketBetCount);
 
   const coins = parseInt(coinInput, 10) || 0;
   const validation = coins > 0 ? validateBet(coins, balance, 10, effectiveMax) : null;
@@ -240,7 +243,7 @@ export function BettingPanel({
               color: "var(--color-warning)",
             }}
           >
-            ⏳ Calibration period — max 100 coins ·{" "}
+            ⏳ Calibration period — max {effectiveMax} coins ·{" "}
             {betsRemaining} bet{betsRemaining !== 1 ? "s" : ""} left to unlock
             full limits
           </div>

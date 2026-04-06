@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/auth";
 import { MarketBanner } from "@/components/markets/MarketBanner";
 import { MarketList } from "@/components/markets/MarketList";
+import { MarketTabSwitcher } from "@/components/markets/MarketTabSwitcher";
 import { Avatar } from "@/components/ui/Avatar";
 import { formatCoins } from "@/lib/utils";
 import type { Market, Position, Profile } from "@/types/database";
@@ -12,27 +13,44 @@ type LeaderboardUser = Pick<
   "id" | "username" | "display_name" | "avatar_url" | "coins" | "wins" | "total_bets"
 >;
 
-export default async function TrendingPage() {
+export default async function TrendingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
+  const { view } = await searchParams;
+  const isCompleted = view === "completed";
+
   const user = await requireAuth();
   const supabase = await createClient();
 
   const [featuredResult, marketsResult, positionsResult, leaderboardResult] =
     await Promise.all([
-      supabase
-        .from("markets")
-        .select("*")
-        .eq("is_featured", true)
-        .eq("status", "open")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+      // Featured banner only shown in active view
+      isCompleted
+        ? Promise.resolve({ data: null })
+        : supabase
+            .from("markets")
+            .select("*")
+            .eq("is_featured", true)
+            .eq("status", "open")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
 
-      supabase
-        .from("markets")
-        .select("*")
-        .eq("status", "open")
-        .order("yes_pool", { ascending: false })
-        .limit(30),
+      isCompleted
+        ? supabase
+            .from("markets")
+            .select("*")
+            .in("status", ["resolved_yes", "resolved_no", "cancelled"])
+            .order("resolution_date", { ascending: false })
+            .limit(50)
+        : supabase
+            .from("markets")
+            .select("*")
+            .in("status", ["open", "closed"])
+            .order("yes_pool", { ascending: false })
+            .limit(30),
 
       supabase
         .from("positions")
@@ -51,10 +69,10 @@ export default async function TrendingPage() {
   const markets = (marketsResult.data ?? []) as Market[];
   const topBettors = (leaderboardResult.data ?? []) as LeaderboardUser[];
 
-  // Sort by total pool (yes + no) descending
-  markets.sort((a, b) => (b.yes_pool + b.no_pool) - (a.yes_pool + a.no_pool));
+  if (!isCompleted) {
+    markets.sort((a, b) => (b.yes_pool + b.no_pool) - (a.yes_pool + a.no_pool));
+  }
 
-  // Build user positions map for quick lookup
   const userPositions: Record<string, Position> = {};
   for (const pos of (positionsResult.data ?? []) as Position[]) {
     if (!userPositions[pos.market_id]) {
@@ -62,7 +80,6 @@ export default async function TrendingPage() {
     }
   }
 
-  // Non-featured markets for the list
   const listMarkets = markets.filter((m) => m.id !== featured?.id);
 
   return (
@@ -78,11 +95,17 @@ export default async function TrendingPage() {
           className="text-xs"
           style={{ color: "var(--color-ink-tertiary)" }}
         >
-          {markets.length} open markets
+          {markets.length} {isCompleted ? "completed" : "open"} markets
         </span>
       </div>
 
-      {/* Mini leaderboard */}
+      <MarketTabSwitcher
+        activeHref="/dashboard/trending"
+        completedHref="/dashboard/trending?view=completed"
+        isCompleted={isCompleted}
+      />
+
+      {/* Mini leaderboard — always visible */}
       {topBettors.length > 0 && (
         <div
           className="rounded-xl mb-4 overflow-hidden"
@@ -135,12 +158,16 @@ export default async function TrendingPage() {
         </div>
       )}
 
-      {featured && <MarketBanner market={featured} />}
+      {!isCompleted && featured && <MarketBanner market={featured} />}
 
       <MarketList
         markets={listMarkets}
         userPositions={userPositions}
-        emptyMessage="No open markets right now."
+        emptyMessage={
+          isCompleted
+            ? "No completed markets yet."
+            : "No open markets right now."
+        }
       />
     </div>
   );

@@ -148,7 +148,12 @@ export function MarketCard({
               className="h-full rounded-full transition-all duration-500"
               style={{
                 width: `${Math.round(yesProb * 100)}%`,
-                backgroundColor: "var(--color-yes)",
+                backgroundColor:
+                  yesProb < 0.34
+                    ? "var(--color-no)"
+                    : yesProb < 0.67
+                    ? "var(--color-warning)"
+                    : "var(--color-yes)",
               }}
             />
           </div>

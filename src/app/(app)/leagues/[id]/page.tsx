@@ -4,10 +4,12 @@ import { requireAuth } from "@/lib/auth";
 import { Avatar } from "@/components/ui/Avatar";
 import { ActivityFeed } from "@/components/feed/ActivityFeed";
 import { CopyInviteCode } from "./CopyInviteCode";
+import { LeagueChat } from "./LeagueChat";
 import { formatCoins } from "@/lib/utils";
 import type {
   League,
   LeagueMember,
+  LeagueMessageWithProfile,
   Profile,
   ActivityFeedEntryWithProfile,
 } from "@/types/database";
@@ -27,7 +29,7 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const [leagueResult, membersResult, activityResult] = await Promise.all([
+  const [leagueResult, membersResult, activityResult, messagesResult] = await Promise.all([
     supabase.from("leagues").select("*").eq("id", id).single(),
 
     supabase
@@ -51,6 +53,13 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
       )
       .order("created_at", { ascending: false })
       .limit(30),
+
+    supabase
+      .from("league_messages")
+      .select("*, profiles:user_id (username, display_name, avatar_url)")
+      .eq("league_id", id)
+      .order("created_at", { ascending: true })
+      .limit(50),
   ]);
 
   if (!leagueResult.data) notFound();
@@ -58,6 +67,7 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
   const league = leagueResult.data as League;
   const members = (membersResult.data ?? []) as MemberWithProfile[];
   const activity = (activityResult.data ?? []) as ActivityFeedEntryWithProfile[];
+  const messages = (messagesResult.data ?? []) as LeagueMessageWithProfile[];
 
   // Sort members by coins descending
   const sortedMembers = [...members].sort(
@@ -233,6 +243,13 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
           })}
         </ul>
       </div>
+
+      {/* League chat */}
+      <LeagueChat
+        leagueId={league.id}
+        currentUserId={user.id}
+        initialMessages={messages}
+      />
 
       {/* League activity */}
       {activity.length > 0 && (

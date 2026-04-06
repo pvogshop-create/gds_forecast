@@ -104,3 +104,14 @@ export function formatWinRate(wins: number, totalBets: number): string {
   if (totalBets === 0) return "—";
   return `${Math.round((wins / totalBets) * 100)}%`;
 }
+
+// Resolve a user's display name, stripping email domain from username if no display_name is set
+export function formatDisplayName(
+  displayName: string | null | undefined,
+  username: string | null | undefined
+): string {
+  if (displayName) return displayName;
+  if (!username) return "Unknown";
+  // If the username looks like an email (e.g. john.doe@gds.org), show only the local part
+  return username.includes("@") ? (username.split("@")[0] ?? username) : username;
+}

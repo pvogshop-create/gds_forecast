@@ -1,20 +1,36 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/auth";
 import { MarketList } from "@/components/markets/MarketList";
+import { MarketTabSwitcher } from "@/components/markets/MarketTabSwitcher";
 import type { Market, Position } from "@/types/database";
 
-export default async function ActionsPage() {
+export default async function ActionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
+  const { view } = await searchParams;
+  const isCompleted = view === "completed";
+
   const user = await requireAuth();
   const supabase = await createClient();
 
   const [marketsResult, positionsResult] = await Promise.all([
-    supabase
-      .from("markets")
-      .select("*")
-      .eq("category", "actions")
-      .in("status", ["open", "closed"])
-      .order("yes_pool", { ascending: false })
-      .limit(30),
+    isCompleted
+      ? supabase
+          .from("markets")
+          .select("*")
+          .eq("category", "actions")
+          .in("status", ["resolved_yes", "resolved_no", "cancelled"])
+          .order("resolution_date", { ascending: false })
+          .limit(50)
+      : supabase
+          .from("markets")
+          .select("*")
+          .eq("category", "actions")
+          .in("status", ["open", "closed"])
+          .order("yes_pool", { ascending: false })
+          .limit(30),
 
     supabase
       .from("positions")
@@ -49,10 +65,20 @@ export default async function ActionsPage() {
         </span>
       </div>
 
+      <MarketTabSwitcher
+        activeHref="/dashboard/actions"
+        completedHref="/dashboard/actions?view=completed"
+        isCompleted={isCompleted}
+      />
+
       <MarketList
         markets={markets}
         userPositions={userPositions}
-        emptyMessage="No actions markets right now."
+        emptyMessage={
+          isCompleted
+            ? "No completed actions markets yet."
+            : "No actions markets right now."
+        }
       />
     </div>
   );

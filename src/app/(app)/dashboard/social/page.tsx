@@ -2,30 +2,48 @@ import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/auth";
 import { MarketBanner } from "@/components/markets/MarketBanner";
 import { MarketList } from "@/components/markets/MarketList";
+import { MarketTabSwitcher } from "@/components/markets/MarketTabSwitcher";
 import type { Market, Position } from "@/types/database";
 
-export default async function SocialPage() {
+export default async function SocialPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ view?: string }>;
+}) {
+  const { view } = await searchParams;
+  const isCompleted = view === "completed";
+
   const user = await requireAuth();
   const supabase = await createClient();
 
   const [featuredResult, marketsResult, positionsResult] = await Promise.all([
-    supabase
-      .from("markets")
-      .select("*")
-      .eq("category", "social")
-      .eq("is_featured", true)
-      .eq("status", "open")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    isCompleted
+      ? Promise.resolve({ data: null })
+      : supabase
+          .from("markets")
+          .select("*")
+          .eq("category", "social")
+          .eq("is_featured", true)
+          .eq("status", "open")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
 
-    supabase
-      .from("markets")
-      .select("*")
-      .eq("category", "social")
-      .in("status", ["open", "closed"])
-      .order("yes_pool", { ascending: false })
-      .limit(30),
+    isCompleted
+      ? supabase
+          .from("markets")
+          .select("*")
+          .eq("category", "social")
+          .in("status", ["resolved_yes", "resolved_no", "cancelled"])
+          .order("resolution_date", { ascending: false })
+          .limit(50)
+      : supabase
+          .from("markets")
+          .select("*")
+          .eq("category", "social")
+          .in("status", ["open", "closed"])
+          .order("yes_pool", { ascending: false })
+          .limit(30),
 
     supabase
       .from("positions")
@@ -63,12 +81,22 @@ export default async function SocialPage() {
         </span>
       </div>
 
-      {featured && <MarketBanner market={featured} />}
+      <MarketTabSwitcher
+        activeHref="/dashboard/social"
+        completedHref="/dashboard/social?view=completed"
+        isCompleted={isCompleted}
+      />
+
+      {!isCompleted && featured && <MarketBanner market={featured} />}
 
       <MarketList
         markets={listMarkets}
         userPositions={userPositions}
-        emptyMessage="No social markets right now."
+        emptyMessage={
+          isCompleted
+            ? "No completed social markets yet."
+            : "No social markets right now."
+        }
       />
     </div>
   );

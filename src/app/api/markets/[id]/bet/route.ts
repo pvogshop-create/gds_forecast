@@ -5,7 +5,7 @@ import { z } from "zod";
 
 const BetSchema = z.object({
   side: z.enum(["yes", "no"]),
-  coins: z.number().int().min(10).max(500),
+  coins: z.number().int().min(10),
 });
 
 export async function POST(
@@ -84,14 +84,15 @@ export async function POST(
       clientMessage = "This market has expired and is now closed.";
     } else if (msg.includes("Minimum bet")) {
       clientMessage = "Minimum bet is 10 coins.";
-    } else if (msg.includes("Maximum bet")) {
-      clientMessage = "Maximum bet is 500 coins per position.";
     } else if (msg.includes("price is at its limit")) {
       clientMessage =
         "Market price is at its limit. Cannot bet further in this direction.";
     } else if (msg.includes("calibration period")) {
-      clientMessage =
-        "Max bet is 100 coins during the first 5 bets on a new market.";
+      // Extract the step message from the DB exception if present
+      const match = msg.match(/Max bet is (\d+) coins/);
+      clientMessage = match
+        ? `Calibration period: max ${match[1]} coins on this bet.`
+        : "Market is in its calibration period. Bet limit increases with each bet.";
     } else if (msg.includes("no line set")) {
       clientMessage = "This market does not have a line set yet.";
     }

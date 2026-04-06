@@ -35,6 +35,17 @@ export default async function AdminPage({
   const adminUser = await requireAdmin();
   const admin = createAdminClient();
 
+  // Fetch admin profile for display name
+  const { data: adminProfile } = await admin
+    .from("profiles")
+    .select("display_name, username")
+    .eq("id", adminUser.id)
+    .maybeSingle();
+  const adminDisplayName =
+    adminProfile?.display_name ??
+    adminProfile?.username ??
+    adminUser.email;
+
   // Fetch data only for the active tab
   let markets: Market[] = [];
   let suggestions: Array<MarketSuggestion & { profiles: Pick<Profile, "username" | "avatar_url"> | null }> = [];
@@ -116,7 +127,7 @@ export default async function AdminPage({
           className="text-sm"
           style={{ color: "var(--color-ink-secondary)" }}
         >
-          Signed in as {adminUser.email}
+          Signed in as {adminDisplayName}
         </p>
       </div>
 

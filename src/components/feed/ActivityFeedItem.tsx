@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Avatar } from "@/components/ui/Avatar";
-import { formatRelativeTime, formatCoins } from "@/lib/utils";
+import { formatRelativeTime, formatCoins, formatDisplayName } from "@/lib/utils";
 import type { ActivityFeedEntryWithProfile } from "@/types/database";
 
 interface ActivityFeedItemProps {
@@ -69,7 +69,7 @@ export function ActivityFeedItem({ entry }: ActivityFeedItemProps) {
             className="font-semibold hover:underline"
             style={{ textDecorationColor: "var(--color-primary)" }}
           >
-            @{username}
+            {formatDisplayName(profile?.display_name, profile?.username)}
           </Link>{" "}
           <span className="mr-1">{emoji}</span>
           {entry.market_id ? (

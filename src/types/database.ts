@@ -178,6 +178,18 @@ export interface LeagueMemberWithProfile extends LeagueMember {
   >;
 }
 
+export interface LeagueMessage {
+  id: string;
+  league_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+}
+
+export interface LeagueMessageWithProfile extends LeagueMessage {
+  profiles: Pick<Profile, "username" | "display_name" | "avatar_url">;
+}
+
 export interface MarketSuggestionWithProfile extends MarketSuggestion {
   profiles: Pick<Profile, "username" | "avatar_url">;
 }

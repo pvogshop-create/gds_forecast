@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Avatar } from "@/components/ui/Avatar";
-import { formatCoins, formatWinRate } from "@/lib/utils";
+import { formatCoins, formatWinRate, formatDisplayName } from "@/lib/utils";
 import type { Profile } from "@/types/database";
 
 type LeaderboardUser = Pick<
@@ -81,7 +81,7 @@ export function Leaderboard({ users }: LeaderboardProps) {
                   className="text-sm font-medium truncate"
                   style={{ color: "var(--color-ink-primary)" }}
                 >
-                  {user.display_name ?? user.username}
+                  {formatDisplayName(user.display_name, user.username)}
                 </p>
                 <p
                   className="text-xs"
