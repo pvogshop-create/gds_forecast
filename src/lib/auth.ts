@@ -21,11 +21,19 @@ export async function requireAuth() {
   return user;
 }
 
+// Comma-separated list of admin emails from ADMIN_EMAIL env var
+function getAdminEmails(): string[] {
+  return (process.env.ADMIN_EMAIL ?? "")
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean);
+}
+
 // Require admin access — server-side validated against ADMIN_EMAIL env var.
 // Two-layer protection: middleware fast-fail + this server-side check.
 export async function requireAdmin() {
   const user = await requireAuth();
-  if (user.email !== process.env.ADMIN_EMAIL) {
+  if (!getAdminEmails().includes(user.email ?? "")) {
     redirect("/dashboard/trending");
   }
   return user;
@@ -63,8 +71,8 @@ export async function requireOnboarding(): Promise<{
   return { user, profile };
 }
 
-// Check if the current user is the admin (used in UI to show/hide admin links)
+// Check if the current user is an admin (used in UI to show/hide admin links)
 export async function isAdmin(): Promise<boolean> {
   const user = await getUser();
-  return user?.email === process.env.ADMIN_EMAIL;
+  return getAdminEmails().includes(user?.email ?? "");
 }

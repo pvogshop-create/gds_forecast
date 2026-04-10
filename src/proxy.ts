@@ -56,7 +56,8 @@ export async function proxy(request: NextRequest) {
 
   // Admin routes: fast-fail if not admin
   // NOTE: Server Components also call requireAdmin() for double protection.
-  if (isAdminRoute && user?.email !== process.env.ADMIN_EMAIL) {
+  const adminEmails = (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim());
+  if (isAdminRoute && !adminEmails.includes(user?.email ?? "")) {
     return NextResponse.redirect(
       new URL("/dashboard/trending", request.url)
     );
