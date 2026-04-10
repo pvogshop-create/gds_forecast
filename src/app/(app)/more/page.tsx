@@ -68,7 +68,10 @@ export default async function MorePage({
         .eq("id", user.id)
         .single(),
     ]);
-    positions = (posResult.data ?? []) as PositionWithMarket[];
+    // Filter out any positions whose market join returned null (FK orphan guard)
+    positions = ((posResult.data ?? []) as PositionWithMarket[]).filter(
+      (p) => p.markets != null
+    );
     profileData = profResult.data as unknown as Pick<Profile, "last_daily_claim" | "referral_code" | "referral_count"> | null;
   }
 
@@ -174,7 +177,10 @@ export default async function MorePage({
         .order("created_at", { ascending: false })
         .limit(100),
     ]);
-    incidentReports = (reportsResult.data ?? []) as IncidentReportWithMarket[];
+    // Filter out reports whose market join returned null
+    incidentReports = ((reportsResult.data ?? []) as IncidentReportWithMarket[]).filter(
+      (r) => r.markets != null
+    );
     reportableMarkets = (marketsResult.data ?? []) as Pick<Market, "id" | "title" | "market_type" | "ou_unit">[];
   }
 
