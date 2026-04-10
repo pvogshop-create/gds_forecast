@@ -43,9 +43,11 @@ ALTER TABLE public.incident_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.incident_votes   ENABLE ROW LEVEL SECURITY;
 
 -- Anyone authenticated can read reports and votes
+DROP POLICY IF EXISTS "incident_reports_read" ON public.incident_reports;
 CREATE POLICY "incident_reports_read" ON public.incident_reports
   FOR SELECT TO authenticated USING (true);
 
+DROP POLICY IF EXISTS "incident_votes_read" ON public.incident_votes;
 CREATE POLICY "incident_votes_read" ON public.incident_votes
   FOR SELECT TO authenticated USING (true);
 
