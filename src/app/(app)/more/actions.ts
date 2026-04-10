@@ -18,7 +18,10 @@ export async function claimDailyBonus(): Promise<{ award: number; coins_after: n
     throw new Error(error.message);
   }
 
-  revalidatePath("/more");
+  // Do NOT call revalidatePath here — it triggers a full layout re-render
+  // (including requireOnboarding) in the server-action response context, which
+  // can crash. The EarnCoinsCard shows the award locally; the coin balance in
+  // the sidebar refreshes on the next navigation.
   return data as { award: number; coins_after: number };
 }
 
