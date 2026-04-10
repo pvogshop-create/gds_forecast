@@ -21,19 +21,19 @@ export async function requireAuth() {
   return user;
 }
 
-// Comma-separated list of admin emails from ADMIN_EMAIL env var
-function getAdminEmails(): string[] {
-  return (process.env.ADMIN_EMAIL ?? "")
-    .split(",")
-    .map((e) => e.trim())
-    .filter(Boolean);
+// Parsed once at module load — O(1) lookups, no per-request string splitting
+if (!process.env.ADMIN_EMAIL) {
+  console.warn("[auth] ADMIN_EMAIL is not set — admin routes will be inaccessible.");
 }
+const ADMIN_EMAILS: ReadonlySet<string> = new Set(
+  (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim()).filter(Boolean)
+);
 
 // Require admin access — server-side validated against ADMIN_EMAIL env var.
 // Two-layer protection: middleware fast-fail + this server-side check.
 export async function requireAdmin() {
   const user = await requireAuth();
-  if (!getAdminEmails().includes(user.email ?? "")) {
+  if (!ADMIN_EMAILS.has(user.email ?? "")) {
     redirect("/dashboard/trending");
   }
   return user;
@@ -74,5 +74,6 @@ export async function requireOnboarding(): Promise<{
 // Check if the current user is an admin (used in UI to show/hide admin links)
 export async function isAdmin(): Promise<boolean> {
   const user = await getUser();
-  return getAdminEmails().includes(user?.email ?? "");
+  if (!user?.email) return false;
+  return ADMIN_EMAILS.has(user.email);
 }

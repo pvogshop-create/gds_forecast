@@ -4,6 +4,11 @@ import { NextResponse, type NextRequest } from "next/server";
 // Routes that are accessible without authentication
 const PUBLIC_ROUTES = ["/login", "/api/auth"];
 
+// Parsed once at module load — avoids per-request string splitting
+const ADMIN_EMAILS: ReadonlySet<string> = new Set(
+  (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim()).filter(Boolean)
+);
+
 // Routes that require admin access
 const ADMIN_ROUTES = ["/admin"];
 
@@ -56,8 +61,7 @@ export async function proxy(request: NextRequest) {
 
   // Admin routes: fast-fail if not admin
   // NOTE: Server Components also call requireAdmin() for double protection.
-  const adminEmails = (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim());
-  if (isAdminRoute && !adminEmails.includes(user?.email ?? "")) {
+  if (isAdminRoute && !ADMIN_EMAILS.has(user?.email ?? "")) {
     return NextResponse.redirect(
       new URL("/dashboard/trending", request.url)
     );

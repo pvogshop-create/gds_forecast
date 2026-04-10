@@ -49,11 +49,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/login?error=missing_code", origin));
   }
 
-  // ── Hard enforcement: only @gds.org emails are permitted (admin Gmail exempt) ─
+  // ── Hard enforcement: only @gds.org emails are permitted (admins exempt) ──────
   const email = userEmail ?? "";
   const isGdsUser = email.endsWith("@gds.org");
-  const isAdmin = email === process.env.ADMIN_EMAIL;
-  if (!isGdsUser && !isAdmin) {
+  const adminEmails = new Set(
+    (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim()).filter(Boolean)
+  );
+  const isAdminEmail = adminEmails.has(email);
+  if (!isGdsUser && !isAdminEmail) {
     await supabase.auth.signOut();
     return NextResponse.redirect(
       new URL("/login?error=unauthorized_domain", origin)
