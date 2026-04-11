@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Copy, Check, Gift, Users } from "lucide-react";
 import { formatCoins } from "@/lib/utils";
 
@@ -22,6 +23,7 @@ export function EarnCoinsCard({
   referralCode,
   referralCount,
 }: EarnCoinsCardProps) {
+  const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const [claimAward, setClaimAward] = useState<number | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
@@ -44,6 +46,7 @@ export function EarnCoinsCard({
         throw new Error(json.error ?? "Could not claim bonus. Try again.");
       }
       setClaimAward((json as { award: number }).award);
+      router.refresh();
     } catch (err) {
       setClaimError(
         err instanceof Error ? err.message : "Could not claim bonus. Try again."
