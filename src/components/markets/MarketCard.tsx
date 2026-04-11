@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Clock, TrendingUp } from "lucide-react";
 import { CategoryBadge, ClosingSoonBadge, NewBadge } from "@/components/ui/Badge";
+import { MarketReactions } from "@/components/markets/MarketReactions";
 import {
   formatProbability,
   formatCoins,
@@ -17,12 +18,14 @@ import type { Market } from "@/types/database";
 interface MarketCardProps {
   market: Market;
   userPosition?: { side: "yes" | "no"; coins_wagered: number } | null;
+  currentUserId?: string | null;
   className?: string;
 }
 
 export function MarketCard({
   market,
   userPosition,
+  currentUserId,
   className,
 }: MarketCardProps) {
   const isOU = market.market_type === "over_under";
@@ -135,6 +138,11 @@ export function MarketCard({
             </span>
           </div>
         ) : (
+          <>
+          <div className="flex justify-between text-xs mb-1">
+            <span style={{ color: "var(--color-yes)" }}>{Math.round(yesProb * 100)}% YES</span>
+            <span style={{ color: "var(--color-no)" }}>{Math.round((1 - yesProb) * 100)}% NO</span>
+          </div>
           <div
             className="h-2 rounded-full overflow-hidden"
             style={{ backgroundColor: "var(--color-bg)" }}
@@ -157,6 +165,7 @@ export function MarketCard({
               }}
             />
           </div>
+          </>
         )}
       </div>
 
@@ -231,6 +240,9 @@ export function MarketCard({
           </Link>
         )}
       </div>
+
+      {/* Emoji reactions */}
+      <MarketReactions marketId={market.id} currentUserId={currentUserId ?? null} />
     </article>
   );
 }

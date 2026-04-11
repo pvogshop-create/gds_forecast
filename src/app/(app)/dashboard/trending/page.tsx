@@ -5,7 +5,8 @@ import { MarketBanner } from "@/components/markets/MarketBanner";
 import { MarketList } from "@/components/markets/MarketList";
 import { MarketTabSwitcher } from "@/components/markets/MarketTabSwitcher";
 import { Avatar } from "@/components/ui/Avatar";
-import { formatCoins } from "@/lib/utils";
+import { WelcomeModal } from "@/components/ui/WelcomeModal";
+import { formatCoins, formatDisplayName } from "@/lib/utils";
 import type { Market, Position, Profile } from "@/types/database";
 
 type LeaderboardUser = Pick<
@@ -23,6 +24,9 @@ export default async function TrendingPage({
 
   const user = await requireAuth();
   const supabase = await createClient();
+
+  // Move any expired open markets to 'closed' so they appear in the Completed tab
+  await supabase.rpc("close_expired_markets");
 
   const [featuredResult, marketsResult, positionsResult, leaderboardResult] =
     await Promise.all([
@@ -42,13 +46,13 @@ export default async function TrendingPage({
         ? supabase
             .from("markets")
             .select("*")
-            .in("status", ["resolved_yes", "resolved_no", "cancelled"])
+            .in("status", ["closed", "resolved_yes", "resolved_no", "cancelled"])
             .order("resolution_date", { ascending: false })
             .limit(50)
         : supabase
             .from("markets")
             .select("*")
-            .in("status", ["open", "closed"])
+            .in("status", ["open"])
             .order("yes_pool", { ascending: false })
             .limit(30),
 
@@ -144,7 +148,7 @@ export default async function TrendingPage({
                   className="text-xs font-medium truncate max-w-full px-1"
                   style={{ color: "var(--color-ink-primary)" }}
                 >
-                  {u.display_name ?? u.username}
+                  {formatDisplayName(u.display_name, u.username)}
                 </span>
                 <span
                   className="text-xs font-bold"
@@ -163,12 +167,16 @@ export default async function TrendingPage({
       <MarketList
         markets={listMarkets}
         userPositions={userPositions}
+        currentUserId={user.id}
         emptyMessage={
           isCompleted
             ? "No completed markets yet."
             : "No open markets right now."
         }
       />
+
+      {/* First-visit welcome modal — shown once, dismissed via localStorage */}
+      <WelcomeModal />
     </div>
   );
 }

@@ -8,8 +8,9 @@ import { LeagueCard } from "@/components/leagues/LeagueCard";
 import { CreateLeagueButton } from "@/app/(app)/leagues/CreateLeagueButton";
 import { JoinLeagueButton } from "@/app/(app)/leagues/JoinLeagueButton";
 import { CategoryBadge, StatusBadge } from "@/components/ui/Badge";
+import { Avatar } from "@/components/ui/Avatar";
 import { markAllNotificationsRead } from "@/app/(app)/notifications/actions";
-import { formatRelativeTime, formatCoins } from "@/lib/utils";
+import { formatRelativeTime, formatCoins, formatDisplayName } from "@/lib/utils";
 import { probToAmericanOdds, formatAmericanOdds } from "@/lib/market-logic";
 import { EarnCoinsCard } from "./EarnCoinsCard";
 import { IncidentVoteButtons } from "./IncidentVoteButtons";
@@ -45,34 +46,34 @@ export default async function MorePage({
   const user = await requireAuth();
   const supabase = await createClient();
 
+  // Always fetch profile — needed for mobile header on every tab + bets tab data
+  type FullProfile = Pick<
+    Profile,
+    "username" | "display_name" | "avatar_url" | "coins" | "last_daily_claim" | "referral_code" | "referral_count"
+  >;
+  const { data: profileResult } = await supabase
+    .from("profiles")
+    .select("username, display_name, avatar_url, coins, last_daily_claim, referral_code, referral_count")
+    .eq("id", user.id)
+    .single();
+  const fullProfile = profileResult as FullProfile | null;
+
   // ── My Bets tab ────────────────────────────────────────────────────────────
   let positions: PositionWithMarket[] = [];
-  let profileData: Pick<
-    Profile,
-    "last_daily_claim" | "referral_code" | "referral_count"
-  > | null = null;
 
   if (tab === "bets") {
-    const [posResult, profResult] = await Promise.all([
-      supabase
-        .from("positions")
-        .select(
-          `*, markets (id, title, category, status, market_type, yes_probability, ou_line, ou_unit, resolution_date)`
-        )
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(100),
-      supabase
-        .from("profiles")
-        .select("last_daily_claim, referral_code, referral_count")
-        .eq("id", user.id)
-        .single(),
-    ]);
+    const { data: posResult } = await supabase
+      .from("positions")
+      .select(
+        `*, markets (id, title, category, status, market_type, yes_probability, ou_line, ou_unit, resolution_date)`
+      )
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(100);
     // Filter out any positions whose market join returned null (FK orphan guard)
-    positions = ((posResult.data ?? []) as PositionWithMarket[]).filter(
+    positions = ((posResult ?? []) as PositionWithMarket[]).filter(
       (p) => p.markets != null
     );
-    profileData = profResult.data as unknown as Pick<Profile, "last_daily_claim" | "referral_code" | "referral_count"> | null;
   }
 
   // ── Notifications tab ──────────────────────────────────────────────────────
@@ -201,6 +202,53 @@ export default async function MorePage({
 
   return (
     <div className="space-y-4">
+      {/* Mobile profile header — only on mobile (sidebar handles this on desktop) */}
+      {fullProfile && (
+        <div
+          className="rounded-xl p-4 flex items-center gap-3 lg:hidden"
+          style={{
+            backgroundColor: "var(--color-bg-card)",
+            border: "1px solid var(--color-border)",
+            boxShadow: "var(--shadow-card)",
+          }}
+        >
+          <Avatar
+            src={fullProfile.avatar_url}
+            displayName={fullProfile.display_name}
+            username={fullProfile.username}
+            size="md"
+          />
+          <div className="flex-1 min-w-0">
+            <p
+              className="font-semibold text-sm truncate"
+              style={{ color: "var(--color-ink-primary)" }}
+            >
+              {formatDisplayName(fullProfile.display_name, fullProfile.username)}
+            </p>
+            <p
+              className="text-xs truncate"
+              style={{ color: "var(--color-ink-secondary)" }}
+            >
+              @{fullProfile.username}
+            </p>
+          </div>
+          <div className="text-right">
+            <p
+              className="text-sm font-bold"
+              style={{ color: "var(--color-coin)" }}
+            >
+              {formatCoins(fullProfile.coins)}
+            </p>
+            <p
+              className="text-xs"
+              style={{ color: "var(--color-ink-tertiary)" }}
+            >
+              coins
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Tab bar — mobile only; desktop uses sidebar links */}
       <nav
         className="flex gap-1 rounded-xl p-1 overflow-x-auto lg:hidden"
@@ -260,9 +308,9 @@ export default async function MorePage({
         <div className="space-y-4">
           {/* Earn Coins card */}
           <EarnCoinsCard
-            lastDailyClaim={profileData?.last_daily_claim ?? null}
-            referralCode={profileData?.referral_code ?? null}
-            referralCount={profileData?.referral_count ?? 0}
+            lastDailyClaim={fullProfile?.last_daily_claim ?? null}
+            referralCode={fullProfile?.referral_code ?? null}
+            referralCount={fullProfile?.referral_count ?? 0}
           />
 
           {/* Stats strip */}

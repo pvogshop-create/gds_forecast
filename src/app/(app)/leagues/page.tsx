@@ -41,13 +41,18 @@ export default async function LeaguesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <h1
-          className="text-xl font-bold"
-          style={{ color: "var(--color-ink-primary)" }}
-        >
-          Leagues
-        </h1>
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h1
+            className="text-xl font-bold"
+            style={{ color: "var(--color-ink-primary)" }}
+          >
+            Leagues
+          </h1>
+          <p className="text-sm mt-1" style={{ color: "var(--color-ink-secondary)" }}>
+            Compete with your friend group — see who calls it right.
+          </p>
+        </div>
         <div className="flex gap-2">
           <JoinLeagueButton />
           <CreateLeagueButton userId={user.id} />

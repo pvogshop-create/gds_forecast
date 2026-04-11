@@ -16,6 +16,9 @@ export default async function SportsPage({
   const user = await requireAuth();
   const supabase = await createClient();
 
+  // Move any expired open markets to 'closed' so they appear in the Completed tab
+  await supabase.rpc("close_expired_markets");
+
   const [featuredResult, marketsResult, positionsResult] = await Promise.all([
     // Featured banner only shown in active view
     isCompleted
@@ -35,14 +38,14 @@ export default async function SportsPage({
           .from("markets")
           .select("*")
           .eq("category", "sports")
-          .in("status", ["resolved_yes", "resolved_no", "cancelled"])
+          .in("status", ["closed", "resolved_yes", "resolved_no", "cancelled"])
           .order("resolution_date", { ascending: false })
           .limit(50)
       : supabase
           .from("markets")
           .select("*")
           .eq("category", "sports")
-          .in("status", ["open", "closed"])
+          .in("status", ["open"])
           .order("yes_pool", { ascending: false })
           .limit(30),
 
@@ -93,6 +96,7 @@ export default async function SportsPage({
       <MarketList
         markets={listMarkets}
         userPositions={userPositions}
+        currentUserId={user.id}
         emptyMessage={
           isCompleted
             ? "No completed sports markets yet."

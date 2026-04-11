@@ -15,20 +15,23 @@ export default async function ActionsPage({
   const user = await requireAuth();
   const supabase = await createClient();
 
+  // Move any expired open markets to 'closed' so they appear in the Completed tab
+  await supabase.rpc("close_expired_markets");
+
   const [marketsResult, positionsResult] = await Promise.all([
     isCompleted
       ? supabase
           .from("markets")
           .select("*")
           .eq("category", "actions")
-          .in("status", ["resolved_yes", "resolved_no", "cancelled"])
+          .in("status", ["closed", "resolved_yes", "resolved_no", "cancelled"])
           .order("resolution_date", { ascending: false })
           .limit(50)
       : supabase
           .from("markets")
           .select("*")
           .eq("category", "actions")
-          .in("status", ["open", "closed"])
+          .in("status", ["open"])
           .order("yes_pool", { ascending: false })
           .limit(30),
 
@@ -74,6 +77,7 @@ export default async function ActionsPage({
       <MarketList
         markets={markets}
         userPositions={userPositions}
+        currentUserId={user.id}
         emptyMessage={
           isCompleted
             ? "No completed actions markets yet."

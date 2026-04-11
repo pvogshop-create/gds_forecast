@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Coins } from "lucide-react";
+import { Coins, Info } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import {
@@ -58,6 +58,7 @@ export function BettingPanel({
     PlaceBetResult | PlaceOuBetResult | null
   >(null);
   const [balance, setBalance] = useState(userBalance);
+  const [showCalibrationInfo, setShowCalibrationInfo] = useState(false);
 
   const isCalibrating = marketBetCount < CALIBRATION_STEPS.length;
   const effectiveMax = isCalibrating
@@ -243,9 +244,31 @@ export function BettingPanel({
               color: "var(--color-warning)",
             }}
           >
-            ⏳ Calibration period — max {effectiveMax} coins ·{" "}
-            {betsRemaining} bet{betsRemaining !== 1 ? "s" : ""} left to unlock
-            full limits
+            <div className="flex items-center justify-between gap-2">
+              <span>
+                ⏳ Calibration period — max {effectiveMax} coins ·{" "}
+                {betsRemaining} bet{betsRemaining !== 1 ? "s" : ""} left to unlock
+                full limits
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowCalibrationInfo((v) => !v)}
+                aria-label="What is calibration?"
+                className="flex-shrink-0 opacity-70 hover:opacity-100 transition-opacity"
+              >
+                <Info size={13} />
+              </button>
+            </div>
+            {showCalibrationInfo && (
+              <p
+                className="mt-1.5 leading-relaxed"
+                style={{ color: "var(--color-ink-secondary)" }}
+              >
+                New markets start with stepped limits so early prices have time
+                to stabilize. Your first 3 bets are capped at 200 → 300 → 400
+                coins. After that, the full limit applies.
+              </p>
+            )}
           </div>
         )}
 
