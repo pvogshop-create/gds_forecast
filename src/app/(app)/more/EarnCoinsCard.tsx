@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Copy, Check, Gift, Users } from "lucide-react";
-import { claimDailyBonus } from "./actions";
 import { formatCoins } from "@/lib/utils";
 
 interface EarnCoinsCardProps {
@@ -23,7 +22,7 @@ export function EarnCoinsCard({
   referralCode,
   referralCount,
 }: EarnCoinsCardProps) {
-  const [isPending, startTransition] = useTransition();
+  const [isPending, setIsPending] = useState(false);
   const [claimAward, setClaimAward] = useState<number | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -35,18 +34,23 @@ export function EarnCoinsCard({
   const canClaim = msRemaining < 0;
   const hoursLeft = canClaim ? 0 : Math.ceil(msRemaining / (1000 * 60 * 60));
 
-  function handleClaim() {
+  async function handleClaim() {
     setClaimError(null);
-    startTransition(async () => {
-      try {
-        const result = await claimDailyBonus();
-        setClaimAward(result.award);
-      } catch (err) {
-        setClaimError(
-          err instanceof Error ? err.message : "Could not claim bonus. Try again."
-        );
+    setIsPending(true);
+    try {
+      const res = await fetch("/api/daily-bonus", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error ?? "Could not claim bonus. Try again.");
       }
-    });
+      setClaimAward((json as { award: number }).award);
+    } catch (err) {
+      setClaimError(
+        err instanceof Error ? err.message : "Could not claim bonus. Try again."
+      );
+    } finally {
+      setIsPending(false);
+    }
   }
 
   function handleCopy() {
