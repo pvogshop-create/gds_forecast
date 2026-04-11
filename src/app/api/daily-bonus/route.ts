@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function POST() {
   try {
     const user = await requireAuth();
-    const supabase = await createClient();
+    // Must use service_role client — the prevent_coin_manipulation trigger
+    // blocks coins updates when auth.role() = 'authenticated'.
+    const supabase = createAdminClient();
 
     const { data, error } = await supabase.rpc("claim_daily_bonus", {
       p_user_id: user.id,
