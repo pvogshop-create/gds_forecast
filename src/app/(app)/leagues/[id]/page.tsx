@@ -2,79 +2,114 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/auth";
 import { Avatar } from "@/components/ui/Avatar";
-import { ActivityFeed } from "@/components/feed/ActivityFeed";
 import { CopyInviteCode } from "./CopyInviteCode";
 import { LeagueChat } from "./LeagueChat";
-import { formatCoins } from "@/lib/utils";
+import { formatCoins, formatDisplayName } from "@/lib/utils";
 import type {
   League,
   LeagueMember,
+  LeagueWeek,
   LeagueMessageWithProfile,
   Profile,
-  ActivityFeedEntryWithProfile,
 } from "@/types/database";
 
 interface LeaguePageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }
 
 type MemberWithProfile = LeagueMember & {
-  profiles: Pick<Profile, "username" | "display_name" | "avatar_url" | "coins" | "total_bets" | "wins">;
+  profiles: Pick<Profile, "username" | "display_name" | "avatar_url">;
 };
+
+interface LiveScore {
+  user_id: string;
+  gross_payout: number;
+}
 
 const MEDALS = ["🥇", "🥈", "🥉"];
 
-export default async function LeaguePage({ params }: LeaguePageProps) {
+function daysRemaining(weekEnd: string): number {
+  const diff = new Date(weekEnd).getTime() - Date.now();
+  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+}
+
+export default async function LeaguePage({
+  params,
+  searchParams,
+}: LeaguePageProps) {
   const user = await requireAuth();
   const { id } = await params;
+  const { tab } = await searchParams;
+  const isWeeklyTab = tab !== "standings";
   const supabase = await createClient();
 
-  const [leagueResult, membersResult, activityResult, messagesResult] = await Promise.all([
-    supabase.from("leagues").select("*").eq("id", id).single(),
+  const [leagueResult, membersResult, messagesResult, activeWeekResult] =
+    await Promise.all([
+      supabase.from("leagues").select("*").eq("id", id).single(),
 
-    supabase
-      .from("league_members")
-      .select("*, profiles:user_id (username, display_name, avatar_url, coins, total_bets, wins)")
-      .eq("league_id", id),
+      supabase
+        .from("league_members")
+        .select("*, profiles:user_id (username, display_name, avatar_url)")
+        .eq("league_id", id),
 
-    supabase
-      .from("activity_feed")
-      .select(
-        "*, profiles:user_id (username, display_name, avatar_url), markets:market_id (title, category, yes_probability)"
-      )
-      .in(
-        "user_id",
-        (
-          await supabase
-            .from("league_members")
-            .select("user_id")
-            .eq("league_id", id)
-        ).data?.map((m: { user_id: string }) => m.user_id) ?? []
-      )
-      .order("created_at", { ascending: false })
-      .limit(30),
+      supabase
+        .from("league_messages")
+        .select("*, profiles:user_id (username, display_name, avatar_url)")
+        .eq("league_id", id)
+        .order("created_at", { ascending: true })
+        .limit(50),
 
-    supabase
-      .from("league_messages")
-      .select("*, profiles:user_id (username, display_name, avatar_url)")
-      .eq("league_id", id)
-      .order("created_at", { ascending: true })
-      .limit(50),
-  ]);
+      supabase
+        .from("league_weeks")
+        .select("*")
+        .eq("league_id", id)
+        .eq("status", "active")
+        .maybeSingle(),
+    ]);
 
   if (!leagueResult.data) notFound();
 
   const league = leagueResult.data as League;
   const members = (membersResult.data ?? []) as MemberWithProfile[];
-  const activity = (activityResult.data ?? []) as ActivityFeedEntryWithProfile[];
   const messages = (messagesResult.data ?? []) as LeagueMessageWithProfile[];
+  const activeWeek = activeWeekResult.data as LeagueWeek | null;
 
-  // Sort members by coins descending
-  const sortedMembers = [...members].sort(
-    (a, b) => (b.profiles?.coins ?? 0) - (a.profiles?.coins ?? 0)
-  );
+  // Fetch live scores only if there is an active week
+  let liveScores: LiveScore[] = [];
+  if (activeWeek) {
+    const { data: scores } = await supabase.rpc("get_live_week_scores", {
+      p_week_id: activeWeek.id,
+    });
+    liveScores = (scores ?? []) as LiveScore[];
+  }
 
   const isOwner = league.creator_id === user.id;
+
+  // Build lookup map
+  const memberByUser = Object.fromEntries(
+    members.map((m) => [m.user_id, m])
+  );
+
+  // Weekly standings: members who are participants this week, sorted by payout desc
+  const weeklyParticipants = liveScores
+    .map((s) => ({
+      ...s,
+      member: memberByUser[s.user_id] as MemberWithProfile | undefined,
+    }))
+    .filter((r): r is typeof r & { member: MemberWithProfile } => r.member !== undefined)
+    .sort((a, b) => b.gross_payout - a.gross_payout);
+
+  // All-time standings: all members sorted by total_points asc (golf: lower = better)
+  // Members with weeks_played > 0 first, unranked last
+  const sortedAllTime = [...members].sort((a, b) => {
+    if (a.weeks_played === 0 && b.weeks_played === 0) return 0;
+    if (a.weeks_played === 0) return 1;
+    if (b.weeks_played === 0) return -1;
+    return a.total_points - b.total_points;
+  });
+
+  const tabHref = (t: string) => `/leagues/${id}?tab=${t}`;
 
   return (
     <div className="space-y-4">
@@ -89,7 +124,7 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
       >
         <div className="flex items-start gap-4">
           <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0"
+            className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 text-lg"
             style={{ backgroundColor: "var(--color-primary)" }}
           >
             {league.name.slice(0, 2).toUpperCase()}
@@ -109,12 +144,28 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
                 {league.description}
               </p>
             )}
-            <p
-              className="text-xs mt-1"
-              style={{ color: "var(--color-ink-tertiary)" }}
-            >
-              {members.length} / {league.max_members} members
-            </p>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5">
+              <span
+                className="text-xs"
+                style={{ color: "var(--color-ink-tertiary)" }}
+              >
+                {members.length} / {league.max_members} members
+              </span>
+              <span
+                className="text-xs font-medium"
+                style={{ color: "var(--color-coin)" }}
+              >
+                {league.buy_in_coins} coin buy-in / week
+              </span>
+              {activeWeek && (
+                <span
+                  className="text-xs"
+                  style={{ color: "var(--color-ink-tertiary)" }}
+                >
+                  Week {activeWeek.week_number} · {daysRemaining(activeWeek.week_end)}d left
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -139,120 +190,194 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
         </div>
       </div>
 
-      {/* Standings */}
+      {/* Tab switcher */}
       <div
-        className="rounded-xl overflow-hidden"
+        className="flex rounded-xl p-1 gap-1"
         style={{
           backgroundColor: "var(--color-bg-card)",
           border: "1px solid var(--color-border)",
-          boxShadow: "var(--shadow-card)",
         }}
+        role="tablist"
       >
-        <div
-          className="px-4 py-3"
-          style={{ borderBottom: "1px solid var(--color-border)" }}
-        >
-          <h2
-            className="font-semibold text-sm"
-            style={{ color: "var(--color-ink-primary)" }}
+        {[
+          { label: "This Week", href: tabHref("weekly"), active: isWeeklyTab },
+          { label: "All-Time Standings", href: tabHref("standings"), active: !isWeeklyTab },
+        ].map(({ label, href, active }) => (
+          <a
+            key={label}
+            href={href}
+            role="tab"
+            aria-selected={active}
+            className="flex-1 text-center py-2 px-3 rounded-lg text-sm font-medium transition-all duration-150"
+            style={{
+              backgroundColor: active ? "var(--color-primary)" : "transparent",
+              color: active ? "white" : "var(--color-ink-secondary)",
+            }}
           >
-            Standings
-          </h2>
-        </div>
-        <ul>
-          {sortedMembers.map((member, index) => {
-            const p = member.profiles;
-            const isCurrentUser = member.user_id === user.id;
-            return (
-              <li
-                key={member.user_id}
-                className="flex items-center gap-3 px-4 py-3 transition-colors duration-150"
-                style={{
-                  borderBottom:
-                    index < sortedMembers.length - 1
-                      ? "1px solid var(--color-border)"
-                      : undefined,
-                  backgroundColor: isCurrentUser
-                    ? "var(--color-primary-light)"
-                    : undefined,
-                }}
-              >
-                {/* Rank */}
-                <span className="w-6 text-sm text-center flex-shrink-0">
-                  {index < 3 ? MEDALS[index] : (
-                    <span style={{ color: "var(--color-ink-tertiary)" }}>
-                      {index + 1}
-                    </span>
-                  )}
-                </span>
-
-                <Avatar
-                  src={p?.avatar_url}
-                  displayName={p?.display_name}
-                  username={p?.username}
-                  size="sm"
-                />
-
-                <div className="flex-1 min-w-0">
-                  <p
-                    className="text-sm font-medium truncate"
-                    style={{ color: "var(--color-ink-primary)" }}
-                  >
-                    {p?.display_name ?? p?.username}{" "}
-                    {isCurrentUser && (
-                      <span
-                        className="text-xs font-normal"
-                        style={{ color: "var(--color-primary)" }}
-                      >
-                        (you)
-                      </span>
-                    )}
-                    {member.role === "owner" && (
-                      <span
-                        className="text-xs font-normal ml-1"
-                        style={{ color: "var(--color-coin)" }}
-                      >
-                        👑
-                      </span>
-                    )}
-                  </p>
-                  <p
-                    className="text-xs"
-                    style={{ color: "var(--color-ink-tertiary)" }}
-                  >
-                    @{p?.username}
-                  </p>
-                </div>
-
-                <div className="text-right flex-shrink-0">
-                  <p
-                    className="text-sm font-bold"
-                    style={{ color: "var(--color-ink-primary)" }}
-                  >
-                    {formatCoins(p?.coins ?? 0)}
-                  </p>
-                  <p
-                    className="text-xs"
-                    style={{ color: "var(--color-coin)" }}
-                  >
-                    coins
-                  </p>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+            {label}
+          </a>
+        ))}
       </div>
 
-      {/* League chat */}
-      <LeagueChat
-        leagueId={league.id}
-        currentUserId={user.id}
-        initialMessages={messages}
-      />
+      {/* This Week panel */}
+      {isWeeklyTab && (
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{
+            backgroundColor: "var(--color-bg-card)",
+            border: "1px solid var(--color-border)",
+            boxShadow: "var(--shadow-card)",
+          }}
+        >
+          <div
+            className="px-4 py-3 flex items-center justify-between"
+            style={{ borderBottom: "1px solid var(--color-border)" }}
+          >
+            <h2
+              className="font-semibold text-sm"
+              style={{ color: "var(--color-ink-primary)" }}
+            >
+              {activeWeek
+                ? `Week ${activeWeek.week_number} — Live Scores`
+                : "Weekly Standings"}
+            </h2>
+            {activeWeek && (
+              <span
+                className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                style={{
+                  backgroundColor: "var(--color-yes-bg)",
+                  color: "var(--color-yes)",
+                }}
+              >
+                Pool: {formatCoins(activeWeek.pool_coins)} coins
+              </span>
+            )}
+          </div>
 
-      {/* League activity */}
-      {activity.length > 0 && (
+          {!activeWeek ? (
+            <div className="px-4 py-8 text-center">
+              <p className="text-2xl mb-2">⏳</p>
+              <p
+                className="text-sm font-medium"
+                style={{ color: "var(--color-ink-secondary)" }}
+              >
+                No active week yet
+              </p>
+              <p
+                className="text-xs mt-1"
+                style={{ color: "var(--color-ink-tertiary)" }}
+              >
+                {league.week_start_date
+                  ? `First week starts ${new Date(league.week_start_date).toLocaleDateString()}`
+                  : "The league manager hasn't set a start date."}
+              </p>
+            </div>
+          ) : weeklyParticipants.length === 0 ? (
+            <div className="px-4 py-8 text-center">
+              <p className="text-2xl mb-2">📊</p>
+              <p
+                className="text-sm font-medium"
+                style={{ color: "var(--color-ink-secondary)" }}
+              >
+                No bets tagged yet this week
+              </p>
+              <p
+                className="text-xs mt-1"
+                style={{ color: "var(--color-ink-tertiary)" }}
+              >
+                Tag your bets to this league to appear on the leaderboard.
+              </p>
+            </div>
+          ) : (
+            <ul>
+              {weeklyParticipants.map((row, index) => {
+                const p = row.member.profiles;
+                const isCurrentUser = row.user_id === user.id;
+                return (
+                  <li
+                    key={row.user_id}
+                    className="flex items-center gap-3 px-4 py-3"
+                    style={{
+                      borderBottom:
+                        index < weeklyParticipants.length - 1
+                          ? "1px solid var(--color-border)"
+                          : undefined,
+                      backgroundColor: isCurrentUser
+                        ? "var(--color-primary-light)"
+                        : undefined,
+                    }}
+                  >
+                    <span className="w-6 text-sm text-center flex-shrink-0">
+                      {index < 3 ? (
+                        MEDALS[index]
+                      ) : (
+                        <span style={{ color: "var(--color-ink-tertiary)" }}>
+                          {index + 1}
+                        </span>
+                      )}
+                    </span>
+
+                    <Avatar
+                      src={p?.avatar_url}
+                      displayName={p?.display_name}
+                      username={p?.username}
+                      size="sm"
+                    />
+
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className="text-sm font-medium truncate"
+                        style={{ color: "var(--color-ink-primary)" }}
+                      >
+                        {formatDisplayName(p?.display_name, p?.username)}
+                        {isCurrentUser && (
+                          <span
+                            className="text-xs font-normal ml-1"
+                            style={{ color: "var(--color-primary)" }}
+                          >
+                            (you)
+                          </span>
+                        )}
+                      </p>
+                      <p
+                        className="text-xs"
+                        style={{ color: "var(--color-ink-tertiary)" }}
+                      >
+                        @{p?.username}
+                      </p>
+                    </div>
+
+                    <div className="text-right flex-shrink-0">
+                      <p
+                        className="text-sm font-bold"
+                        style={{
+                          color:
+                            row.gross_payout > 0
+                              ? "var(--color-yes)"
+                              : "var(--color-ink-tertiary)",
+                        }}
+                      >
+                        {row.gross_payout > 0
+                          ? `+${formatCoins(row.gross_payout)}`
+                          : "—"}
+                      </p>
+                      <p
+                        className="text-xs"
+                        style={{ color: "var(--color-ink-tertiary)" }}
+                      >
+                        coins
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* All-Time Standings panel */}
+      {!isWeeklyTab && (
         <div
           className="rounded-xl overflow-hidden"
           style={{
@@ -269,15 +394,132 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
               className="font-semibold text-sm"
               style={{ color: "var(--color-ink-primary)" }}
             >
-              League Activity
+              All-Time Standings
             </h2>
+            <p
+              className="text-xs mt-0.5"
+              style={{ color: "var(--color-ink-tertiary)" }}
+            >
+              Golf scoring — lower points is better
+            </p>
           </div>
-          <ActivityFeed entries={activity} />
+
+          {sortedAllTime.length === 0 ? (
+            <div className="px-4 py-8 text-center">
+              <p
+                className="text-sm"
+                style={{ color: "var(--color-ink-secondary)" }}
+              >
+                No standings yet.
+              </p>
+            </div>
+          ) : (
+            <ul>
+              {sortedAllTime.map((member, index) => {
+                const p = member.profiles;
+                const isCurrentUser = member.user_id === user.id;
+                const hasPlayed = member.weeks_played > 0;
+                return (
+                  <li
+                    key={member.user_id}
+                    className="flex items-center gap-3 px-4 py-3"
+                    style={{
+                      borderBottom:
+                        index < sortedAllTime.length - 1
+                          ? "1px solid var(--color-border)"
+                          : undefined,
+                      backgroundColor: isCurrentUser
+                        ? "var(--color-primary-light)"
+                        : undefined,
+                    }}
+                  >
+                    <span className="w-6 text-sm text-center flex-shrink-0">
+                      {hasPlayed && index < 3 ? (
+                        MEDALS[index]
+                      ) : (
+                        <span style={{ color: "var(--color-ink-tertiary)" }}>
+                          {hasPlayed ? index + 1 : "—"}
+                        </span>
+                      )}
+                    </span>
+
+                    <Avatar
+                      src={p?.avatar_url}
+                      displayName={p?.display_name}
+                      username={p?.username}
+                      size="sm"
+                    />
+
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className="text-sm font-medium truncate"
+                        style={{ color: "var(--color-ink-primary)" }}
+                      >
+                        {formatDisplayName(p?.display_name, p?.username)}
+                        {isCurrentUser && (
+                          <span
+                            className="text-xs font-normal ml-1"
+                            style={{ color: "var(--color-primary)" }}
+                          >
+                            (you)
+                          </span>
+                        )}
+                        {member.role === "owner" && (
+                          <span className="ml-1 text-xs">👑</span>
+                        )}
+                      </p>
+                      <p
+                        className="text-xs"
+                        style={{ color: "var(--color-ink-tertiary)" }}
+                      >
+                        {hasPlayed
+                          ? `${member.weeks_played} week${member.weeks_played !== 1 ? "s" : ""} played`
+                          : "Not yet participated"}
+                      </p>
+                    </div>
+
+                    <div className="text-right flex-shrink-0">
+                      {hasPlayed ? (
+                        <>
+                          <p
+                            className="text-sm font-bold"
+                            style={{ color: "var(--color-ink-primary)" }}
+                          >
+                            {member.total_points} pts
+                          </p>
+                          <p
+                            className="text-xs"
+                            style={{ color: "var(--color-ink-tertiary)" }}
+                          >
+                            points
+                          </p>
+                        </>
+                      ) : (
+                        <p
+                          className="text-sm"
+                          style={{ color: "var(--color-ink-tertiary)" }}
+                        >
+                          —
+                        </p>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
 
-      {/* Owner actions */}
-      {isOwner && (
+      {/* League chat */}
+      <LeagueChat
+        leagueId={league.id}
+        currentUserId={user.id}
+        initialMessages={messages}
+      />
+
+      {/* Pool info for owner */}
+      {isOwner && league.carry_over_pool > 0 && (
         <div
           className="rounded-xl p-4"
           style={{
@@ -286,19 +528,20 @@ export default async function LeaguePage({ params }: LeaguePageProps) {
           }}
         >
           <p
-            className="text-xs font-semibold uppercase tracking-wide mb-2"
+            className="text-xs font-semibold uppercase tracking-wide mb-1"
             style={{ color: "var(--color-ink-tertiary)" }}
           >
-            Owner Settings
+            Carried-Over Pool
           </p>
           <p
-            className="text-xs"
-            style={{ color: "var(--color-ink-secondary)" }}
+            className="text-sm"
+            style={{ color: "var(--color-coin)" }}
           >
-            Share the invite code above to grow your league. Members can leave at any time.
+            {formatCoins(league.carry_over_pool)} coins waiting for next week&apos;s winner
           </p>
         </div>
       )}
+
     </div>
   );
 }

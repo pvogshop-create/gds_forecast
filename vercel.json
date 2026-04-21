@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/resolve-incidents",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/league-weeks",
+      "schedule": "0 0 * * *"
     }
   ]
 }

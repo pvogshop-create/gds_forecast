@@ -23,6 +23,13 @@ import type {
   IncidentVote,
 } from "@/types/database";
 
+interface ActiveLeagueWeek {
+  league_id: string;
+  league_name: string;
+  week_number: number;
+  week_id: string;
+}
+
 interface MarketPageProps {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ side?: string }>;
@@ -37,7 +44,7 @@ export default async function MarketPage({
   const { side: initialSide } = await searchParams;
   const supabase = await createClient();
 
-  const [marketResult, historyResult, positionResult, activityResult, profileResult, betCountResult, incidentResult] =
+  const [marketResult, historyResult, positionResult, activityResult, profileResult, betCountResult, incidentResult, leagueWeeksResult] =
     await Promise.all([
       supabase.from("markets").select("*").eq("id", id).single(),
 
@@ -83,6 +90,13 @@ export default async function MarketPage({
         .eq("market_id", id)
         .in("status", ["voting", "passed"])
         .maybeSingle(),
+
+      // Active league weeks the user is participating in (for bet tagging)
+      supabase
+        .from("league_week_participants")
+        .select("week_id, league_id, league_weeks!inner(week_number, status), leagues!inner(name)")
+        .eq("user_id", user.id)
+        .eq("league_weeks.status", "active"),
     ]);
 
   if (!marketResult.data) notFound();
@@ -98,6 +112,25 @@ export default async function MarketPage({
     incident_votes: Pick<IncidentVote, "user_id" | "agrees">[];
   };
   const activeIncident = incidentResult.data as IncidentReportWithVotes | null;
+
+  // Supabase returns joined relations as arrays; take first element of each.
+  const activeLeagueWeeks: ActiveLeagueWeek[] = (
+    (leagueWeeksResult.data ?? []) as Array<{
+      week_id: string;
+      league_id: string;
+      league_weeks: { week_number: number; status: string } | { week_number: number; status: string }[];
+      leagues: { name: string } | { name: string }[];
+    }>
+  ).map((row) => {
+    const lw = Array.isArray(row.league_weeks) ? row.league_weeks[0] : row.league_weeks;
+    const lg = Array.isArray(row.leagues) ? row.leagues[0] : row.leagues;
+    return {
+      league_id: row.league_id,
+      league_name: lg?.name ?? "",
+      week_number: lw?.week_number ?? 0,
+      week_id: row.week_id,
+    };
+  }).filter((r) => r.week_number > 0);
   const canReport =
     !activeIncident &&
     (market.status === "open" || market.status === "closed");
@@ -344,6 +377,7 @@ export default async function MarketPage({
         initialSide={
           initialSide === "yes" || initialSide === "no" ? initialSide : "yes"
         }
+        activeLeagueWeeks={activeLeagueWeeks}
       />
 
       {/* Incident report widget */}

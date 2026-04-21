@@ -19,10 +19,12 @@ export function CreateLeagueButton({ userId }: CreateLeagueButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [buyIn, setBuyIn] = useState(100);
+  const [weekStart, setWeekStart] = useState("");
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || !weekStart) return;
 
     setIsLoading(true);
     const supabase = createClient();
@@ -33,6 +35,8 @@ export function CreateLeagueButton({ userId }: CreateLeagueButtonProps) {
         name: name.trim(),
         description: description.trim() || null,
         creator_id: userId,
+        buy_in_coins: buyIn,
+        week_start_date: new Date(weekStart).toISOString(),
       })
       .select("id")
       .single();
@@ -53,6 +57,8 @@ export function CreateLeagueButton({ userId }: CreateLeagueButtonProps) {
     setIsOpen(false);
     setName("");
     setDescription("");
+    setBuyIn(100);
+    setWeekStart("");
     router.refresh();
     router.push(`/leagues/${data.id}`);
   }
@@ -125,6 +131,67 @@ export function CreateLeagueButton({ userId }: CreateLeagueButtonProps) {
             />
           </div>
 
+          <div>
+            <label
+              htmlFor="league-buy-in"
+              className="block text-xs font-medium mb-1.5"
+              style={{ color: "var(--color-ink-secondary)" }}
+            >
+              Weekly buy-in (coins) *
+            </label>
+            <input
+              id="league-buy-in"
+              type="number"
+              min={10}
+              max={500}
+              step={10}
+              value={buyIn}
+              onChange={(e) => setBuyIn(Number(e.target.value))}
+              required
+              className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all duration-150"
+              style={{
+                backgroundColor: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-ink-primary)",
+              }}
+            />
+            <p
+              className="text-xs mt-1"
+              style={{ color: "var(--color-ink-tertiary)" }}
+            >
+              10–500 coins per week, deducted automatically each week
+            </p>
+          </div>
+
+          <div>
+            <label
+              htmlFor="league-week-start"
+              className="block text-xs font-medium mb-1.5"
+              style={{ color: "var(--color-ink-secondary)" }}
+            >
+              First week starts *
+            </label>
+            <input
+              id="league-week-start"
+              type="datetime-local"
+              value={weekStart}
+              onChange={(e) => setWeekStart(e.target.value)}
+              required
+              className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all duration-150"
+              style={{
+                backgroundColor: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-ink-primary)",
+              }}
+            />
+            <p
+              className="text-xs mt-1"
+              style={{ color: "var(--color-ink-tertiary)" }}
+            >
+              All subsequent weeks roll 7 days from this date
+            </p>
+          </div>
+
           <div className="flex gap-2 pt-1">
             <Button
               type="button"
@@ -141,7 +208,7 @@ export function CreateLeagueButton({ userId }: CreateLeagueButtonProps) {
               size="md"
               className="flex-1"
               isLoading={isLoading}
-              disabled={!name.trim()}
+              disabled={!name.trim() || !weekStart}
             >
               Create League
             </Button>

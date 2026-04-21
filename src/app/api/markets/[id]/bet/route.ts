@@ -6,6 +6,7 @@ import { z } from "zod";
 const BetSchema = z.object({
   side: z.enum(["yes", "no"]),
   coins: z.number().int().min(10),
+  league_id: z.string().uuid().nullable().optional(),
 });
 
 export async function POST(
@@ -38,7 +39,7 @@ export async function POST(
     );
   }
 
-  const { side, coins } = parsed.data;
+  const { side, coins, league_id } = parsed.data;
   const { id: marketId } = await params;
 
   // ── 3. Validate marketId is a well-formed UUID ──────────────────────────────
@@ -101,6 +102,40 @@ export async function POST(
       { error: clientMessage },
       { status: isDomainError ? 400 : 500 }
     );
+  }
+
+  // ── 6. Tag bet to league if requested ─────────────────────────────────────
+  if (league_id && data) {
+    const positionId = (data as { position_id?: string }).position_id;
+    if (positionId) {
+      // Find the active week for this league
+      const { data: activeWeek } = await supabase
+        .from("league_weeks")
+        .select("id")
+        .eq("league_id", league_id)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (activeWeek) {
+        // Verify user is a participant in this week
+        const { data: participant } = await supabase
+          .from("league_week_participants")
+          .select("week_id")
+          .eq("week_id", activeWeek.id)
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (participant) {
+          // Insert silently — failure doesn't abort the bet
+          await supabase.from("league_bets").insert({
+            position_id: positionId,
+            league_id,
+            week_id: activeWeek.id,
+            user_id: user.id,
+          });
+        }
+      }
+    }
   }
 
   return NextResponse.json({ success: true, result: data });

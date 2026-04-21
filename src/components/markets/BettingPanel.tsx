@@ -31,12 +31,20 @@ const PRESET_AMOUNTS = [10, 50, 100, 500] as const;
 // After 3 bets, no cap (enforced by user balance only).
 const CALIBRATION_STEPS = [200, 300, 400] as const;
 
+interface ActiveLeagueWeek {
+  league_id: string;
+  league_name: string;
+  week_number: number;
+  week_id: string;
+}
+
 interface BettingPanelProps {
   market: Market;
   userPosition: Position | null;
   userBalance: number;
   marketBetCount: number;
   initialSide?: PositionSide;
+  activeLeagueWeeks?: ActiveLeagueWeek[];
   onBetPlaced?: (result: PlaceBetResult) => void;
 }
 
@@ -46,6 +54,7 @@ export function BettingPanel({
   userBalance,
   marketBetCount,
   initialSide = "yes",
+  activeLeagueWeeks = [],
   onBetPlaced,
 }: BettingPanelProps) {
   const router = useRouter();
@@ -59,6 +68,7 @@ export function BettingPanel({
   >(null);
   const [balance, setBalance] = useState(userBalance);
   const [showCalibrationInfo, setShowCalibrationInfo] = useState(false);
+  const [selectedLeagueId, setSelectedLeagueId] = useState<string | null>(null);
 
   const isCalibrating = marketBetCount < CALIBRATION_STEPS.length;
   const effectiveMax = isCalibrating
@@ -117,7 +127,7 @@ export function BettingPanel({
       const res = await fetch(`/api/markets/${market.id}/bet`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ side: selectedSide, coins: betCoins }),
+        body: JSON.stringify({ side: selectedSide, coins: betCoins, league_id: selectedLeagueId }),
       });
 
       const data = (await res.json()) as {
@@ -512,6 +522,36 @@ export function BettingPanel({
                     ? (successResult as PlaceBetResult).yes_odds_at_bet
                     : -(successResult as PlaceBetResult).yes_odds_at_bet
                 )}!`}
+          </div>
+        )}
+
+        {/* League tagging */}
+        {activeLeagueWeeks.length > 0 && (
+          <div>
+            <p
+              className="text-xs font-medium mb-1.5"
+              style={{ color: "var(--color-ink-secondary)" }}
+            >
+              Tag to league (optional)
+            </p>
+            <select
+              value={selectedLeagueId ?? ""}
+              onChange={(e) => setSelectedLeagueId(e.target.value || null)}
+              className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all duration-150"
+              style={{
+                backgroundColor: "var(--color-bg)",
+                border: "1px solid var(--color-border)",
+                color: selectedLeagueId ? "var(--color-ink-primary)" : "var(--color-ink-tertiary)",
+              }}
+              aria-label="Tag bet to a league"
+            >
+              <option value="">— Don&apos;t tag —</option>
+              {activeLeagueWeeks.map((lw) => (
+                <option key={lw.league_id} value={lw.league_id}>
+                  {lw.league_name} · Week {lw.week_number}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 

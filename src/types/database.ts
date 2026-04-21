@@ -21,7 +21,8 @@ export type NotificationType =
   | "suggestion_approved"
   | "suggestion_rejected"
   | "league_joined"
-  | "league_invite";
+  | "league_invite"
+  | "league_win";
 
 export type IncidentStatus = "voting" | "passed" | "vetoed" | "resolved" | "dismissed";
 
@@ -111,6 +112,9 @@ export interface League {
   invite_code: string;
   is_public: boolean;
   max_members: number;
+  buy_in_coins: number;
+  week_start_date: string | null;
+  carry_over_pool: number;
   created_at: string;
   updated_at: string;
 }
@@ -120,6 +124,35 @@ export interface LeagueMember {
   user_id: string;
   role: "owner" | "member";
   joined_at: string;
+  total_points: number;
+  weeks_played: number;
+}
+
+export interface LeagueWeek {
+  id: string;
+  league_id: string;
+  week_number: number;
+  week_start: string;
+  week_end: string;
+  pool_coins: number;
+  status: "active" | "completed" | "rolled_over";
+  created_at: string;
+}
+
+export interface LeagueWeekParticipant {
+  week_id: string;
+  user_id: string;
+  league_id: string;
+  buy_in_paid: number;
+  gross_payout: number;
+  points: number | null;
+}
+
+export interface LeagueBet {
+  position_id: string;
+  league_id: string;
+  week_id: string;
+  user_id: string;
 }
 
 export interface Notification {
