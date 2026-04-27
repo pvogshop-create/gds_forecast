@@ -84,14 +84,14 @@ export default async function LeaguePage({
       supabase.rpc("get_live_week_scores", { p_week_id: activeWeek.id }),
       supabase
         .from("league_bets")
-        .select("positions!inner(coins)")
+        .select("positions!inner(coins_wagered)")
         .eq("week_id", activeWeek.id)
         .eq("user_id", user.id),
     ]);
     liveScores = (scoresResult.data ?? []) as LiveScore[];
-    const myBets = (myBetsResult.data ?? []) as { positions: { coins: number } }[];
+    const myBets = (myBetsResult.data ?? []) as { positions: { coins_wagered: number } }[];
     myTaggedCount = myBets.length;
-    myTaggedCoins = myBets.reduce((sum, b) => sum + (b.positions?.coins ?? 0), 0);
+    myTaggedCoins = myBets.reduce((sum, b) => sum + (b.positions?.coins_wagered ?? 0), 0);
   }
 
   const isOwner = league.creator_id === user.id;
