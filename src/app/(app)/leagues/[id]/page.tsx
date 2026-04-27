@@ -89,7 +89,7 @@ export default async function LeaguePage({
         .eq("user_id", user.id),
     ]);
     liveScores = (scoresResult.data ?? []) as LiveScore[];
-    const myBets = (myBetsResult.data ?? []) as { positions: { coins_wagered: number } }[];
+    const myBets = (myBetsResult.data ?? []) as unknown as { positions: { coins_wagered: number } }[];
     myTaggedCount = myBets.length;
     myTaggedCoins = myBets.reduce((sum, b) => sum + (b.positions?.coins_wagered ?? 0), 0);
   }
