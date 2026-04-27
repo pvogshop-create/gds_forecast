@@ -75,13 +75,23 @@ export default async function LeaguePage({
   const messages = (messagesResult.data ?? []) as LeagueMessageWithProfile[];
   const activeWeek = activeWeekResult.data as LeagueWeek | null;
 
-  // Fetch live scores only if there is an active week
+  // Fetch live scores and user's tagged bet stats only if there is an active week
   let liveScores: LiveScore[] = [];
+  let myTaggedCoins = 0;
+  let myTaggedCount = 0;
   if (activeWeek) {
-    const { data: scores } = await supabase.rpc("get_live_week_scores", {
-      p_week_id: activeWeek.id,
-    });
-    liveScores = (scores ?? []) as LiveScore[];
+    const [scoresResult, myBetsResult] = await Promise.all([
+      supabase.rpc("get_live_week_scores", { p_week_id: activeWeek.id }),
+      supabase
+        .from("league_bets")
+        .select("positions!inner(coins)")
+        .eq("week_id", activeWeek.id)
+        .eq("user_id", user.id),
+    ]);
+    liveScores = (scoresResult.data ?? []) as LiveScore[];
+    const myBets = (myBetsResult.data ?? []) as { positions: { coins: number } }[];
+    myTaggedCount = myBets.length;
+    myTaggedCoins = myBets.reduce((sum, b) => sum + (b.positions?.coins ?? 0), 0);
   }
 
   const isOwner = league.creator_id === user.id;
@@ -242,15 +252,26 @@ export default async function LeaguePage({
                 : "Weekly Standings"}
             </h2>
             {activeWeek && (
-              <span
-                className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                style={{
-                  backgroundColor: "var(--color-yes-bg)",
-                  color: "var(--color-yes)",
-                }}
-              >
-                Pool: {formatCoins(activeWeek.pool_coins)} coins
-              </span>
+              <div className="flex items-center gap-2">
+                <span
+                  className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                  style={{
+                    backgroundColor: "var(--color-yes-bg)",
+                    color: "var(--color-yes)",
+                  }}
+                >
+                  Pool: {formatCoins(activeWeek.pool_coins)} coins
+                </span>
+                <span
+                  className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                  style={{
+                    backgroundColor: "var(--color-primary-light)",
+                    color: "var(--color-primary)",
+                  }}
+                >
+                  You: {myTaggedCount} bet{myTaggedCount !== 1 ? "s" : ""} · {formatCoins(myTaggedCoins)} wagered
+                </span>
+              </div>
             )}
           </div>
 
