@@ -5,6 +5,7 @@ import { Send } from "lucide-react";
 import { sendLeagueMessage } from "./actions";
 import { formatRelativeTime, formatDisplayName } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
+import { createClient } from "@/lib/supabase/client";
 import type { LeagueMessageWithProfile } from "@/types/database";
 
 interface LeagueChatProps {
@@ -31,6 +32,48 @@ export function LeagueChat({
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Realtime subscription — receive messages from other members live
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`league-chat-${leagueId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "league_messages",
+          filter: `league_id=eq.${leagueId}`,
+        },
+        async (payload) => {
+          // Skip messages sent by the current user (already added optimistically)
+          if (payload.new.user_id === currentUserId) return;
+
+          // Fetch the sender's profile so we can display their name/avatar
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("username, display_name, avatar_url")
+            .eq("id", payload.new.user_id)
+            .single();
+
+          const incoming: LeagueMessageWithProfile = {
+            id: payload.new.id,
+            league_id: payload.new.league_id,
+            user_id: payload.new.user_id,
+            body: payload.new.body,
+            created_at: payload.new.created_at,
+            profiles: profile ?? { username: null, display_name: null, avatar_url: null },
+          };
+          setMessages((prev) => [...prev, incoming]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [leagueId, currentUserId]);
 
   function handleSend(e: React.FormEvent) {
     e.preventDefault();
