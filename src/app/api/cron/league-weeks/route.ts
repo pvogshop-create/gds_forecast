@@ -17,8 +17,9 @@ export async function GET(request: NextRequest) {
   const results: {
     closed: { week_id: string; result: unknown }[];
     started: { league_id: string; result: unknown }[];
+    skipped: { league_id: string; reason: string }[];
     errors: { id: string; action: string; error: string }[];
-  } = { closed: [], started: [], errors: [] };
+  } = { closed: [], started: [], skipped: [], errors: [] };
 
   // ── 1. Close overdue active weeks ────────────────────────────────────────
   const { data: overdueWeeks, error: overdueErr } = await admin
@@ -61,14 +62,22 @@ export async function GET(request: NextRequest) {
 
   for (const league of eligibleLeagues ?? []) {
     // Only start if no week is currently active
-    const { data: existing } = await admin
+    const { data: existing, error: existingErr } = await admin
       .from("league_weeks")
       .select("id")
       .eq("league_id", league.id)
       .eq("status", "active")
       .maybeSingle();
 
-    if (existing) continue;
+    if (existingErr) {
+      results.errors.push({ id: league.id, action: "check_existing", error: existingErr.message });
+      continue;
+    }
+
+    if (existing) {
+      results.skipped.push({ league_id: league.id, reason: "active_week_exists" });
+      continue;
+    }
 
     const { data, error } = await admin.rpc("start_league_week", {
       p_league_id: league.id,
@@ -84,6 +93,7 @@ export async function GET(request: NextRequest) {
     ok: true,
     closed: results.closed.length,
     started: results.started.length,
+    skipped: results.skipped,
     errors: results.errors,
   });
 }
