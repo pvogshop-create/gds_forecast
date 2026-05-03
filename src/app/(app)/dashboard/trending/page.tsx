@@ -41,6 +41,7 @@ export default async function TrendingPage({
     hotStreakResult,
     coldStreakResult,
     weeklyEarnerResult,
+    commentsResult,
   ] = await Promise.all([
     isCompleted
       ? supabase
@@ -83,6 +84,11 @@ export default async function TrendingPage({
 
     // Stat leaderboard — weekly top earner
     supabase.rpc("get_weekly_top_earner"),
+
+    // Comment counts (active tab only) — fetched in parallel; filtered to open markets in JS
+    isCompleted
+      ? Promise.resolve({ data: null })
+      : supabase.from("market_comments").select("market_id"),
   ]);
 
   const allMarkets = (marketsResult.data ?? []) as Market[];
@@ -90,8 +96,9 @@ export default async function TrendingPage({
     (profileResult.data as { username: string | null } | null)?.username ?? null;
   const hotStreakUser = hotStreakResult.data as StreakUser | null;
   const coldStreakUser = coldStreakResult.data as StreakUser | null;
-  const weeklyEarner =
-    ((weeklyEarnerResult.data as WeeklyEarner[] | null) ?? [])[0] ?? null;
+  const weeklyEarner = Array.isArray(weeklyEarnerResult.data)
+    ? ((weeklyEarnerResult.data as WeeklyEarner[])[0] ?? null)
+    : null;
 
   const userPositions: Record<string, Position> = {};
   for (const pos of (positionsResult.data ?? []) as Position[]) {
@@ -135,27 +142,23 @@ export default async function TrendingPage({
       )
       .slice(0, 6);
 
-    // Fetch comment counts for all open market IDs
-    const marketIds = allMarkets.map((m) => m.id);
-    if (marketIds.length > 0) {
-      const { data: commentRows } = await supabase
-        .from("market_comments")
-        .select("market_id")
-        .in("market_id", marketIds);
-
-      const commentCounts = new Map<string, number>();
-      for (const { market_id } of commentRows ?? []) {
+    // Aggregate comment counts (data fetched in parallel above)
+    const openMarketIds = new Set(allMarkets.map((m) => m.id));
+    const commentCounts = new Map<string, number>();
+    const commentRows = (commentsResult.data ?? []) as { market_id: string }[];
+    for (const { market_id } of commentRows) {
+      if (openMarketIds.has(market_id)) {
         commentCounts.set(market_id, (commentCounts.get(market_id) ?? 0) + 1);
       }
-
-      mostCommentedMarkets = [...allMarkets]
-        .filter((m) => (commentCounts.get(m.id) ?? 0) > 0)
-        .sort(
-          (a, b) =>
-            (commentCounts.get(b.id) ?? 0) - (commentCounts.get(a.id) ?? 0)
-        )
-        .slice(0, 6);
     }
+
+    mostCommentedMarkets = [...allMarkets]
+      .filter((m) => (commentCounts.get(m.id) ?? 0) > 0)
+      .sort(
+        (a, b) =>
+          (commentCounts.get(b.id) ?? 0) - (commentCounts.get(a.id) ?? 0)
+      )
+      .slice(0, 6);
   }
 
   const statCards = [
