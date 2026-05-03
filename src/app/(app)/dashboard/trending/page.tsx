@@ -28,7 +28,7 @@ export default async function TrendingPage({
   // Move any expired open markets to 'closed' so they appear in the Completed tab
   await supabase.rpc("close_expired_markets");
 
-  const [featuredResult, marketsResult, positionsResult, leaderboardResult] =
+  const [featuredResult, marketsResult, positionsResult, leaderboardResult, profileResult] =
     await Promise.all([
       // Featured banner only shown in active view
       isCompleted
@@ -67,11 +67,14 @@ export default async function TrendingPage({
         .select("id, username, display_name, avatar_url, coins, wins, total_bets")
         .order("coins", { ascending: false })
         .limit(3),
+
+      supabase.from("profiles").select("username").eq("id", user.id).single(),
     ]);
 
   const featured = featuredResult.data as Market | null;
   const markets = (marketsResult.data ?? []) as Market[];
   const topBettors = (leaderboardResult.data ?? []) as LeaderboardUser[];
+  const currentUsername = (profileResult.data as { username: string | null } | null)?.username ?? null;
 
   if (!isCompleted) {
     markets.sort((a, b) => (b.yes_pool + b.no_pool) - (a.yes_pool + a.no_pool));
@@ -168,6 +171,7 @@ export default async function TrendingPage({
         markets={listMarkets}
         userPositions={userPositions}
         currentUserId={user.id}
+        currentUsername={currentUsername}
         emptyMessage={
           isCompleted
             ? "No completed markets yet."

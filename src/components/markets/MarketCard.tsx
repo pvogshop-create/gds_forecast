@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Clock, TrendingUp } from "lucide-react";
 import { CategoryBadge, ClosingSoonBadge, NewBadge } from "@/components/ui/Badge";
 import { MarketReactions } from "@/components/markets/MarketReactions";
+import { MarketCardComments } from "@/components/markets/MarketCardComments";
 import {
   formatProbability,
   formatCoins,
@@ -19,6 +20,7 @@ interface MarketCardProps {
   market: Market;
   userPosition?: { side: "yes" | "no"; coins_wagered: number } | null;
   currentUserId?: string | null;
+  currentUsername?: string | null;
   className?: string;
 }
 
@@ -26,6 +28,7 @@ export function MarketCard({
   market,
   userPosition,
   currentUserId,
+  currentUsername,
   className,
 }: MarketCardProps) {
   const isOU = market.market_type === "over_under";
@@ -243,6 +246,13 @@ export function MarketCard({
 
       {/* Emoji reactions */}
       <MarketReactions marketId={market.id} currentUserId={currentUserId ?? null} />
+
+      {/* Inline comment section */}
+      <MarketCardComments
+        marketId={market.id}
+        currentUserId={currentUserId ?? null}
+        currentUsername={currentUsername ?? null}
+      />
     </article>
   );
 }

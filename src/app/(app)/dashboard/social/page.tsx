@@ -3,7 +3,7 @@ import { requireAuth } from "@/lib/auth";
 import { MarketBanner } from "@/components/markets/MarketBanner";
 import { MarketList } from "@/components/markets/MarketList";
 import { MarketTabSwitcher } from "@/components/markets/MarketTabSwitcher";
-import type { Market, Position } from "@/types/database";
+import type { Market, Position, Profile } from "@/types/database";
 
 export default async function SocialPage({
   searchParams,
@@ -19,7 +19,7 @@ export default async function SocialPage({
   // Move any expired open markets to 'closed' so they appear in the Completed tab
   await supabase.rpc("close_expired_markets");
 
-  const [featuredResult, marketsResult, positionsResult] = await Promise.all([
+  const [featuredResult, marketsResult, positionsResult, profileResult] = await Promise.all([
     isCompleted
       ? Promise.resolve({ data: null })
       : supabase
@@ -53,10 +53,13 @@ export default async function SocialPage({
       .select("*")
       .eq("user_id", user.id)
       .eq("status", "open"),
+
+    supabase.from("profiles").select("username").eq("id", user.id).single(),
   ]);
 
   const featured = featuredResult.data as Market | null;
   const markets = (marketsResult.data ?? []) as Market[];
+  const currentUsername = (profileResult.data as Pick<Profile, "username"> | null)?.username ?? null;
 
   const userPositions: Record<string, Position> = {};
   for (const pos of (positionsResult.data ?? []) as Position[]) {
@@ -96,6 +99,7 @@ export default async function SocialPage({
         markets={listMarkets}
         userPositions={userPositions}
         currentUserId={user.id}
+        currentUsername={currentUsername}
         emptyMessage={
           isCompleted
             ? "No completed social markets yet."

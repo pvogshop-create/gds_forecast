@@ -210,14 +210,15 @@ export function MarketComments({
   }
 
   // ── Render helper: highlight @mentions in body ─────────────────────────────
-  function renderBody(body: string) {
+  // On own messages (primary background) mentions must be white; on others use primary color.
+  function renderBody(body: string, isMe: boolean) {
     const parts = body.split(/(@\w+)/g);
     return parts.map((part, i) =>
       /^@\w+$/.test(part) ? (
         <span
           key={i}
           className="font-semibold"
-          style={{ color: "var(--color-primary)" }}
+          style={{ color: isMe ? "rgba(255,255,255,0.9)" : "var(--color-primary)" }}
         >
           {part}
         </span>
@@ -321,7 +322,7 @@ export function MarketComments({
                         wordBreak: "break-word",
                       }}
                     >
-                      {renderBody(comment.body)}
+                      {renderBody(comment.body, isMe)}
                     </div>
                     {/* Delete button — only on own comments, visible on hover */}
                     {isMe && !comment.id.startsWith("optimistic-") && (

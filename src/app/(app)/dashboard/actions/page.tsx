@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/auth";
 import { MarketList } from "@/components/markets/MarketList";
 import { MarketTabSwitcher } from "@/components/markets/MarketTabSwitcher";
-import type { Market, Position } from "@/types/database";
+import type { Market, Position, Profile } from "@/types/database";
 
 export default async function ActionsPage({
   searchParams,
@@ -18,7 +18,7 @@ export default async function ActionsPage({
   // Move any expired open markets to 'closed' so they appear in the Completed tab
   await supabase.rpc("close_expired_markets");
 
-  const [marketsResult, positionsResult] = await Promise.all([
+  const [marketsResult, positionsResult, profileResult] = await Promise.all([
     isCompleted
       ? supabase
           .from("markets")
@@ -40,9 +40,12 @@ export default async function ActionsPage({
       .select("*")
       .eq("user_id", user.id)
       .eq("status", "open"),
+
+    supabase.from("profiles").select("username").eq("id", user.id).single(),
   ]);
 
   const markets = (marketsResult.data ?? []) as Market[];
+  const currentUsername = (profileResult.data as Pick<Profile, "username"> | null)?.username ?? null;
 
   const userPositions: Record<string, Position> = {};
   for (const pos of (positionsResult.data ?? []) as Position[]) {
@@ -78,6 +81,7 @@ export default async function ActionsPage({
         markets={markets}
         userPositions={userPositions}
         currentUserId={user.id}
+        currentUsername={currentUsername}
         emptyMessage={
           isCompleted
             ? "No completed actions markets yet."

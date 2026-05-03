@@ -6,6 +6,7 @@ interface MarketListProps {
   userPositions?: Record<string, Position>;
   emptyMessage?: string;
   currentUserId?: string | null;
+  currentUsername?: string | null;
 }
 
 export function MarketList({
@@ -13,6 +14,7 @@ export function MarketList({
   userPositions,
   emptyMessage = "No markets found.",
   currentUserId,
+  currentUsername,
 }: MarketListProps) {
   if (markets.length === 0) {
     return (
@@ -47,6 +49,7 @@ export function MarketList({
           key={market.id}
           market={market}
           currentUserId={currentUserId}
+          currentUsername={currentUsername}
           userPosition={
             userPositions?.[market.id]
               ? {
