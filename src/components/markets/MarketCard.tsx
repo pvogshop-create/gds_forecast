@@ -115,12 +115,28 @@ export function MarketCard({
       {/* Title */}
       <Link href={`/market/${market.id}`} className="block group">
         <h3
-          className="font-semibold text-sm leading-snug mb-3 group-hover:underline"
+          className="font-semibold text-sm leading-snug mb-1.5 group-hover:underline"
           style={{ color: "var(--color-ink-primary)", textDecorationColor: "var(--color-primary)" }}
         >
           {market.title}
         </h3>
       </Link>
+
+      {/* Suggester attribution */}
+      {market.suggested_by && market.suggested_by_profile && (
+        <p className="text-xs mb-2.5" style={{ color: "var(--color-ink-tertiary)" }}>
+          by{" "}
+          <a
+            href={`/profile/${market.suggested_by_profile.username ?? ""}`}
+            className="font-medium hover:underline"
+            style={{ color: "var(--color-primary)" }}
+          >
+            @{market.suggested_by_profile.username
+                ?? market.suggested_by_profile.display_name
+                ?? "user"}
+          </a>
+        </p>
+      )}
 
       {/* Probability / volume bar */}
       <div className="mb-3">

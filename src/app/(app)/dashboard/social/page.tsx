@@ -24,7 +24,7 @@ export default async function SocialPage({
       ? Promise.resolve({ data: null })
       : supabase
           .from("markets")
-          .select("*")
+          .select("*, suggested_by_profile:profiles!suggested_by(username, display_name)")
           .eq("category", "social")
           .eq("is_featured", true)
           .eq("status", "open")
@@ -35,14 +35,14 @@ export default async function SocialPage({
     isCompleted
       ? supabase
           .from("markets")
-          .select("*")
+          .select("*, suggested_by_profile:profiles!suggested_by(username, display_name)")
           .eq("category", "social")
           .in("status", ["closed", "resolved_yes", "resolved_no", "cancelled"])
           .order("resolution_date", { ascending: false })
           .limit(50)
       : supabase
           .from("markets")
-          .select("*")
+          .select("*, suggested_by_profile:profiles!suggested_by(username, display_name)")
           .eq("category", "social")
           .in("status", ["open"])
           .order("yes_pool", { ascending: false })

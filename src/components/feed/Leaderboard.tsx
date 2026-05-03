@@ -57,14 +57,18 @@ export function Leaderboard({ users }: LeaderboardProps) {
                 className="w-6 text-center text-sm flex-shrink-0"
                 aria-label={`Rank ${index + 1}`}
               >
-                {index < 3 ? MEDALS[index] : (
-                  <span
-                    className="font-bold text-xs"
-                    style={{ color: "var(--color-ink-tertiary)" }}
-                  >
-                    {index + 1}
-                  </span>
-                )}
+                {index < 3
+                ? MEDALS[index]
+                : index === users.length - 1 && users.length > 3
+                  ? "💩"
+                  : (
+                    <span
+                      className="font-bold text-xs"
+                      style={{ color: "var(--color-ink-tertiary)" }}
+                    >
+                      {index + 1}
+                    </span>
+                  )}
               </span>
 
               {/* Avatar */}

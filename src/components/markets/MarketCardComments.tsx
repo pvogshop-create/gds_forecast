@@ -1,12 +1,18 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useRef, useCallback } from "react";
 import { Send, MessageSquare } from "lucide-react";
 import { postComment } from "@/app/(app)/market/[id]/actions";
 import { formatDisplayName } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { createClient } from "@/lib/supabase/client";
 import type { MarketCommentWithProfile } from "@/types/database";
+
+interface MentionSuggestion {
+  username: string;
+  display_name: string | null;
+  avatar_url: string | null;
+}
 
 interface MarketCardCommentsProps {
   marketId: string;
@@ -24,6 +30,12 @@ export function MarketCardComments({
   const [input, setInput] = useState("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  // @mention autocomplete
+  const [suggestions, setSuggestions] = useState<MentionSuggestion[]>([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Fetch last 3 comments on mount
   useEffect(() => {
@@ -46,11 +58,62 @@ export function MarketCardComments({
       });
   }, [marketId]);
 
+  // ── @mention autocomplete ────────────────────────────────────────────────
+  const fetchSuggestions = useCallback(async (partial: string) => {
+    if (!partial) {
+      setSuggestions([]);
+      setSuggestionsOpen(false);
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/users/search?q=${encodeURIComponent(partial)}`
+      );
+      if (!res.ok) return;
+      const data: MentionSuggestion[] = await res.json();
+      setSuggestions(data);
+      setSuggestionsOpen(data.length > 0);
+    } catch {
+      // Autocomplete failure is non-critical
+    }
+  }, []);
+
+  function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const value = e.target.value;
+    setInput(value);
+
+    const mentionMatch = /@(\w*)$/.exec(value);
+    if (mentionMatch) {
+      const partial = mentionMatch[1] ?? "";
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => fetchSuggestions(partial), 300);
+    } else {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      setSuggestions([]);
+      setSuggestionsOpen(false);
+    }
+  }
+
+  function handleSelectSuggestion(username: string) {
+    const replaced = input.replace(/@(\w*)$/, `@${username} `);
+    setInput(replaced);
+    setSuggestionsOpen(false);
+    setSuggestions([]);
+    inputRef.current?.focus();
+  }
+
+  function closeSuggestions() {
+    setSuggestionsOpen(false);
+    setSuggestions([]);
+  }
+
+  // ── Send comment ──────────────────────────────────────────────────────────
   function handleSend(e: React.FormEvent) {
     e.preventDefault();
     const body = input.trim();
     if (!body || !currentUserId) return;
 
+    closeSuggestions();
     setError(null);
     setInput("");
 
@@ -100,7 +163,9 @@ export function MarketCardComments({
             className="text-xs transition-colors duration-150 hover:underline"
             style={{ color: "var(--color-ink-tertiary)" }}
           >
-            {showViewAll ? `View all ${total} comments` : `${total} comment${total !== 1 ? "s" : ""}`}
+            {showViewAll
+              ? `View all ${total} comments`
+              : `${total} comment${total !== 1 ? "s" : ""}`}
           </a>
         </div>
       )}
@@ -156,42 +221,96 @@ export function MarketCardComments({
               {error}
             </p>
           )}
-          <form onSubmit={handleSend} className="flex items-center gap-1.5">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Add a comment…"
-              maxLength={500}
-              className="flex-1 px-2.5 py-1.5 rounded-lg text-xs outline-none transition-all duration-150"
-              style={{
-                backgroundColor: "var(--color-bg)",
-                border: "1px solid var(--color-border)",
-                color: "var(--color-ink-primary)",
-              }}
-            />
-            <button
-              type="submit"
-              disabled={!input.trim() || isPending}
-              className="flex-shrink-0 p-1.5 rounded-lg transition-all duration-150"
-              style={{
-                backgroundColor:
-                  input.trim() && !isPending
-                    ? "var(--color-primary)"
-                    : "var(--color-bg)",
-                color:
-                  input.trim() && !isPending
-                    ? "white"
-                    : "var(--color-ink-tertiary)",
-                border: "1px solid var(--color-border)",
-                opacity: isPending ? 0.6 : 1,
-                cursor: !input.trim() || isPending ? "not-allowed" : "pointer",
-              }}
-              aria-label="Post comment"
-            >
-              <Send size={11} />
-            </button>
-          </form>
+          <div className="relative">
+            {/* @mention autocomplete dropdown */}
+            {suggestionsOpen && suggestions.length > 0 && (
+              <div
+                className="absolute bottom-full left-0 right-0 mb-1 rounded-xl overflow-hidden z-10"
+                style={{
+                  backgroundColor: "var(--color-bg-card)",
+                  border: "1px solid var(--color-border)",
+                  boxShadow: "var(--shadow-card)",
+                }}
+              >
+                {suggestions.map((s) => (
+                  <button
+                    key={s.username}
+                    type="button"
+                    onMouseDown={(e) => {
+                      // mousedown fires before input blur so selection registers
+                      e.preventDefault();
+                      handleSelectSuggestion(s.username ?? "");
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs transition-colors duration-100"
+                    style={{ color: "var(--color-ink-primary)" }}
+                    onMouseEnter={(e) => {
+                      (
+                        e.currentTarget as HTMLButtonElement
+                      ).style.backgroundColor = "var(--color-bg)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (
+                        e.currentTarget as HTMLButtonElement
+                      ).style.backgroundColor = "transparent";
+                    }}
+                  >
+                    <Avatar
+                      src={s.avatar_url}
+                      displayName={s.display_name}
+                      username={s.username}
+                      size="xs"
+                    />
+                    <span className="font-medium">@{s.username}</span>
+                    {s.display_name && (
+                      <span style={{ color: "var(--color-ink-tertiary)" }}>
+                        {s.display_name}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <form onSubmit={handleSend} className="flex items-center gap-1.5">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={handleInputChange}
+                onBlur={() => setTimeout(closeSuggestions, 150)}
+                placeholder="Add a comment…"
+                maxLength={500}
+                className="flex-1 px-2.5 py-1.5 rounded-lg text-xs outline-none transition-all duration-150"
+                style={{
+                  backgroundColor: "var(--color-bg)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-ink-primary)",
+                }}
+              />
+              <button
+                type="submit"
+                disabled={!input.trim() || isPending}
+                className="flex-shrink-0 p-1.5 rounded-lg transition-all duration-150"
+                style={{
+                  backgroundColor:
+                    input.trim() && !isPending
+                      ? "var(--color-primary)"
+                      : "var(--color-bg)",
+                  color:
+                    input.trim() && !isPending
+                      ? "white"
+                      : "var(--color-ink-tertiary)",
+                  border: "1px solid var(--color-border)",
+                  opacity: isPending ? 0.6 : 1,
+                  cursor:
+                    !input.trim() || isPending ? "not-allowed" : "pointer",
+                }}
+                aria-label="Post comment"
+              >
+                <Send size={11} />
+              </button>
+            </form>
+          </div>
         </>
       ) : (
         <a
@@ -206,12 +325,16 @@ export function MarketCardComments({
   );
 }
 
-// Highlight @mentions in comment body (plain text, no bubble context)
+// Highlight @mentions in comment body (plain card context — no bubble coloring)
 function renderBody(body: string) {
   const parts = body.split(/(@\w+)/g);
   return parts.map((part, i) =>
     /^@\w+$/.test(part) ? (
-      <span key={i} className="font-semibold" style={{ color: "var(--color-primary)" }}>
+      <span
+        key={i}
+        className="font-semibold"
+        style={{ color: "var(--color-primary)" }}
+      >
         {part}
       </span>
     ) : (

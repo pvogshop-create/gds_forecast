@@ -35,6 +35,8 @@ export interface Profile {
   coins: number;
   total_bets: number;
   wins: number;
+  win_streak: number;
+  loss_streak: number;
   last_daily_claim: string | null;
   referral_code: string | null;
   referral_count: number;
@@ -63,6 +65,7 @@ export interface Market {
   resolution_value: number | null; // actual numeric result (O/U markets)
   creator_id: string;
   suggested_by: string | null;  // profile id of the user who suggested this market; null = admin-created
+  suggested_by_profile?: { username: string | null; display_name: string | null } | null;
   is_featured: boolean;
   created_at: string;
   updated_at: string;

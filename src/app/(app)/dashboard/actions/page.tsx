@@ -22,14 +22,14 @@ export default async function ActionsPage({
     isCompleted
       ? supabase
           .from("markets")
-          .select("*")
+          .select("*, suggested_by_profile:profiles!suggested_by(username, display_name)")
           .eq("category", "actions")
           .in("status", ["closed", "resolved_yes", "resolved_no", "cancelled"])
           .order("resolution_date", { ascending: false })
           .limit(50)
       : supabase
           .from("markets")
-          .select("*")
+          .select("*, suggested_by_profile:profiles!suggested_by(username, display_name)")
           .eq("category", "actions")
           .in("status", ["open"])
           .order("yes_pool", { ascending: false })

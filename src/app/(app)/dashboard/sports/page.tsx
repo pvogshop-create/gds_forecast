@@ -25,7 +25,7 @@ export default async function SportsPage({
       ? Promise.resolve({ data: null })
       : supabase
           .from("markets")
-          .select("*")
+          .select("*, suggested_by_profile:profiles!suggested_by(username, display_name)")
           .eq("category", "sports")
           .eq("is_featured", true)
           .eq("status", "open")
@@ -36,14 +36,14 @@ export default async function SportsPage({
     isCompleted
       ? supabase
           .from("markets")
-          .select("*")
+          .select("*, suggested_by_profile:profiles!suggested_by(username, display_name)")
           .eq("category", "sports")
           .in("status", ["closed", "resolved_yes", "resolved_no", "cancelled"])
           .order("resolution_date", { ascending: false })
           .limit(50)
       : supabase
           .from("markets")
-          .select("*")
+          .select("*, suggested_by_profile:profiles!suggested_by(username, display_name)")
           .eq("category", "sports")
           .in("status", ["open"])
           .order("yes_pool", { ascending: false })

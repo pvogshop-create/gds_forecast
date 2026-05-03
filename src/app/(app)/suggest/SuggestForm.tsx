@@ -13,7 +13,6 @@ const CATEGORIES: { value: MarketCategory; label: string; emoji: string }[] = [
   { value: "sports", label: "Sports", emoji: "🏆" },
   { value: "actions", label: "Actions", emoji: "⚡" },
   { value: "social", label: "Social", emoji: "👥" },
-  { value: "trending", label: "Trending", emoji: "📈" },
 ];
 
 interface SuggestFormProps {
