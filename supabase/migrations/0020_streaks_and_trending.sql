@@ -63,7 +63,7 @@ AS $$
   FROM   positions p
   JOIN   profiles  pr ON pr.id = p.user_id
   WHERE  p.status = 'won'
-    AND  p.updated_at >= NOW() - INTERVAL '7 days'
+    AND  p.created_at >= NOW() - INTERVAL '7 days'
   GROUP BY p.user_id, pr.username, pr.display_name, pr.avatar_url
   ORDER BY weekly_earned DESC
   LIMIT 1;
