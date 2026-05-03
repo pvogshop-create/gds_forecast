@@ -253,10 +253,9 @@ export default async function TrendingPage({
             style={{ "--tw-divide-opacity": 1 } as React.CSSProperties}
           >
             {statCards.map((card) => (
-              <a
+              <div
                 key={card.label}
-                href={`/profile/${card.user.username ?? ""}`}
-                className="flex-1 flex flex-col items-center gap-1 py-3 px-2 hover:bg-[var(--color-bg-hover)] transition-colors duration-150"
+                className="flex-1 flex flex-col items-center gap-1 py-3 px-2"
                 style={{ borderColor: "var(--color-border)" }}
               >
                 <span className="text-base leading-none">{card.emoji}</span>
@@ -284,7 +283,7 @@ export default async function TrendingPage({
                 >
                   {card.stat}
                 </span>
-              </a>
+              </div>
             ))}
           </div>
         </div>
