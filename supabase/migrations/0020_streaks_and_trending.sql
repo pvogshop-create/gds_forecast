@@ -56,7 +56,7 @@ SET search_path = public
 AS $$
   SELECT
     p.user_id,
-    SUM(p.payout - p.cost)::BIGINT AS weekly_earned,
+    SUM(p.payout - p.coins_wagered)::BIGINT AS weekly_earned,
     pr.username,
     pr.display_name,
     pr.avatar_url
