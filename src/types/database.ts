@@ -22,7 +22,8 @@ export type NotificationType =
   | "suggestion_rejected"
   | "league_joined"
   | "league_invite"
-  | "league_win";
+  | "league_win"
+  | "comment_mention";
 
 export type IncidentStatus = "voting" | "passed" | "vetoed" | "resolved" | "dismissed";
 
@@ -61,6 +62,7 @@ export interface Market {
   resolution_note: string | null;
   resolution_value: number | null; // actual numeric result (O/U markets)
   creator_id: string;
+  suggested_by: string | null;  // profile id of the user who suggested this market; null = admin-created
   is_featured: boolean;
   created_at: string;
   updated_at: string;
@@ -221,6 +223,18 @@ export interface LeagueMessage {
 
 export interface LeagueMessageWithProfile extends LeagueMessage {
   profiles: Pick<Profile, "username" | "display_name" | "avatar_url">;
+}
+
+export interface MarketComment {
+  id: string;
+  market_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+}
+
+export interface MarketCommentWithProfile extends MarketComment {
+  profiles: Pick<Profile, "username" | "display_name" | "avatar_url"> | null;
 }
 
 export interface MarketSuggestionWithProfile extends MarketSuggestion {

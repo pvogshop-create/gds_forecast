@@ -5,6 +5,7 @@ import { CategoryBadge, StatusBadge } from "@/components/ui/Badge";
 import { BettingPanel } from "@/components/markets/BettingPanel";
 import { ProbabilityChart } from "@/components/markets/ProbabilityChart";
 import { ActivityFeed } from "@/components/feed/ActivityFeed";
+import { MarketComments } from "@/components/markets/MarketComments";
 import { ToastContainer } from "@/components/ui/Toast";
 import { ReportOutcomeForm } from "./ReportOutcomeForm";
 import { IncidentVoteButtons } from "@/app/(app)/more/IncidentVoteButtons";
@@ -18,6 +19,7 @@ import type {
   Position,
   MarketProbabilityHistory,
   ActivityFeedEntryWithProfile,
+  MarketCommentWithProfile,
   Profile,
   IncidentReport,
   IncidentVote,
@@ -44,7 +46,7 @@ export default async function MarketPage({
   const { side: initialSide } = await searchParams;
   const supabase = await createClient();
 
-  const [marketResult, historyResult, positionResult, activityResult, profileResult, betCountResult, incidentResult, leagueWeeksResult] =
+  const [marketResult, historyResult, positionResult, activityResult, profileResult, betCountResult, incidentResult, leagueWeeksResult, commentsResult] =
     await Promise.all([
       supabase.from("markets").select("*").eq("id", id).single(),
 
@@ -73,7 +75,7 @@ export default async function MarketPage({
 
       supabase
         .from("profiles")
-        .select("coins")
+        .select("coins, username")
         .eq("id", user.id)
         .single(),
 
@@ -97,6 +99,14 @@ export default async function MarketPage({
         .select("week_id, league_id, league_weeks!inner(week_number, status), leagues!inner(name)")
         .eq("user_id", user.id)
         .eq("league_weeks.status", "active"),
+
+      // Market comments (most recent 50, ascending so oldest shows first)
+      supabase
+        .from("market_comments")
+        .select("id, market_id, user_id, body, created_at, profiles(username, display_name, avatar_url)")
+        .eq("market_id", id)
+        .order("created_at", { ascending: true })
+        .limit(50),
     ]);
 
   if (!marketResult.data) notFound();
@@ -105,8 +115,19 @@ export default async function MarketPage({
   const history = (historyResult.data ?? []) as MarketProbabilityHistory[];
   const userPosition = positionResult.data as Position | null;
   const activity = (activityResult.data ?? []) as ActivityFeedEntryWithProfile[];
-  const profile = profileResult.data as Pick<Profile, "coins"> | null;
+  const profile = profileResult.data as Pick<Profile, "coins" | "username"> | null;
   const marketBetCount = betCountResult.count ?? 0;
+  const comments = (commentsResult.data ?? []) as unknown as MarketCommentWithProfile[];
+
+  // Fetch the suggester's profile if this market was user-submitted
+  const suggesterResult = market.suggested_by
+    ? await supabase
+        .from("profiles")
+        .select("username, display_name")
+        .eq("id", market.suggested_by)
+        .single()
+    : { data: null };
+  const suggester = suggesterResult.data as Pick<Profile, "username" | "display_name"> | null;
 
   type IncidentReportWithVotes = IncidentReport & {
     incident_votes: Pick<IncidentVote, "user_id" | "agrees">[];
@@ -161,6 +182,21 @@ export default async function MarketPage({
             </span>
           )}
         </div>
+
+        {suggester && (
+          <p
+            className="text-xs mb-2"
+            style={{ color: "var(--color-ink-tertiary)" }}
+          >
+            Suggested by{" "}
+            <span
+              className="font-semibold"
+              style={{ color: "var(--color-primary)" }}
+            >
+              @{suggester.username ?? suggester.display_name ?? "a user"}
+            </span>
+          </p>
+        )}
 
         <h1
           className="text-xl font-bold leading-snug mb-2"
@@ -507,6 +543,14 @@ export default async function MarketPage({
           <ActivityFeed entries={activity} />
         </div>
       )}
+
+      {/* Comments section */}
+      <MarketComments
+        marketId={market.id}
+        currentUserId={user.id}
+        currentUsername={profile?.username ?? null}
+        initialComments={comments}
+      />
     </div>
   );
 }

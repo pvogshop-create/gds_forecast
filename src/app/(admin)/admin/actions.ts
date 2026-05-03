@@ -173,6 +173,7 @@ export async function approveSuggestion(
       description: s.description,
       category: s.category,
       creator_id: user.id,
+      suggested_by: s.user_id,
       market_type: "over_under",
       ou_line: ouLine,
       ou_opening_line: ouLine,
@@ -190,6 +191,7 @@ export async function approveSuggestion(
       description: s.description,
       category: s.category,
       creator_id: user.id,
+      suggested_by: s.user_id,
       yes_pool: yesPool,
       no_pool: noPool,
     };
@@ -210,12 +212,18 @@ export async function approveSuggestion(
     .update({ status: "approved" })
     .eq("id", suggestionId);
 
-  // Notify the suggester
+  // Award 100 coins to the suggester
+  await admin.rpc("admin_adjust_balance", {
+    p_user_id: s.user_id,
+    p_amount: 100,
+  });
+
+  // Notify the suggester (includes coin reward in message)
   await admin.from("notifications").insert({
     user_id: s.user_id,
     type: "suggestion_approved",
     title: "Your suggestion was approved! 🎉",
-    body: `"${s.title}" is now live as a market.`,
+    body: `"${s.title}" is now live as a market. You earned 100 coins for the suggestion!`,
     data: { market_id: market.id, suggestion_id: suggestionId },
   });
 
