@@ -52,9 +52,9 @@ const admin = createClient(supabaseUrl, serviceRoleKey, {
 // ─── Seed Data ────────────────────────────────────────────────────────────────
 const MARKETS = [
   {
-    title: "Will GDS win the DCSAA championship this year?",
+    title: "Will our school win the state championship this year?",
     description:
-      "Resolves YES if Georgetown Day School wins the DCSAA overall championship title before the end of the school year.",
+      "Resolves YES if the school wins the state overall championship title before the end of the school year.",
     category: "sports",
     yes_pool: 320,
     no_pool: 180,
@@ -64,9 +64,9 @@ const MARKETS = [
     ).toISOString(),
   },
   {
-    title: "Will the GDS boys basketball team finish with a winning record?",
+    title: "Will the boys basketball team finish with a winning record?",
     description:
-      "Resolves YES if the GDS varsity boys basketball team wins more than 50% of their regular-season games.",
+      "Resolves YES if the varsity boys basketball team wins more than 50% of their regular-season games.",
     category: "sports",
     yes_pool: 250,
     no_pool: 150,
@@ -78,7 +78,7 @@ const MARKETS = [
   {
     title: "Will the school lunch menu change in the next 30 days?",
     description:
-      "Resolves YES if the GDS cafeteria introduces at least one new menu item or removes an existing staple within 30 days.",
+      "Resolves YES if the cafeteria introduces at least one new menu item or removes an existing staple within 30 days.",
     category: "actions",
     yes_pool: 100,
     no_pool: 300,
@@ -88,9 +88,9 @@ const MARKETS = [
     ).toISOString(),
   },
   {
-    title: "Will GDS cancel school for a snow day before spring break?",
+    title: "Will school be cancelled for a snow day before spring break?",
     description:
-      "Resolves YES if GDS cancels or delays school due to weather at least once before spring break.",
+      "Resolves YES if school is cancelled or delayed due to weather at least once before spring break.",
     category: "actions",
     yes_pool: 400,
     no_pool: 100,
@@ -100,9 +100,9 @@ const MARKETS = [
     ).toISOString(),
   },
   {
-    title: "Will the most-followed GDS student account hit 1k Instagram followers?",
+    title: "Will the most-followed student account hit 1k Instagram followers?",
     description:
-      "Resolves YES if any current GDS student's verified personal Instagram account reaches 1,000 followers before June 1.",
+      "Resolves YES if any current student's verified personal Instagram account reaches 1,000 followers before June 1.",
     category: "social",
     yes_pool: 180,
     no_pool: 220,
@@ -110,9 +110,9 @@ const MARKETS = [
     resolution_date: new Date(`${new Date().getFullYear()}-06-01`).toISOString(),
   },
   {
-    title: "Will a GDS student go viral on TikTok this semester?",
+    title: "Will a student go viral on TikTok this semester?",
     description:
-      "Resolves YES if a video by a GDS student receives more than 500,000 views on TikTok before the end of the semester.",
+      "Resolves YES if a video by a student receives more than 500,000 views on TikTok before the end of the semester.",
     category: "trending",
     yes_pool: 200,
     no_pool: 200,
@@ -122,9 +122,9 @@ const MARKETS = [
     ).toISOString(),
   },
   {
-    title: "Will GDS host a pep rally before the end of the school year?",
+    title: "Will the school host a pep rally before the end of the school year?",
     description:
-      "Resolves YES if Georgetown Day School organizes at least one all-school pep rally before the final day of the school year.",
+      "Resolves YES if the school organizes at least one all-school pep rally before the final day of the school year.",
     category: "social",
     yes_pool: 350,
     no_pool: 150,
@@ -137,7 +137,7 @@ const MARKETS = [
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 async function seed() {
-  console.log("🌱 GDS Forecast — Seed Script");
+  console.log("🌱 Forecast — Seed Script");
   console.log("─".repeat(40));
 
   // Look up admin user by email
