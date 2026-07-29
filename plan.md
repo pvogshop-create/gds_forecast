@@ -10,9 +10,10 @@ Migrations 0024 → 0033, then the navigation overhaul.
 Forecast is adding a **three-tier visibility model** (Public / Circle / League). The spec is
 `docs/forecast-data-model-spec.md`; migrations 0001–0022 are applied.
 
-**Step 1–6 come before any migration** because the test harness spec §10 requires does not exist.
-The repo has two test files, both pure math unit tests. No authenticated-client RLS harness, no
-test-user matrix, no betting-loop regression.
+**Steps 1–6 come before any migration** because the test harness spec §10 requires did not exist.
+Much of it now does (see Part I): the local stack is up and a Playwright suite with seeded users,
+auth helpers and a prod-lockout guard is working. What's still missing is the part that gates
+step 10 — the seven-user tier matrix and the visibility assertions themselves.
 
 That matters at **step 10 (migration 0027)**, which rewrites the market read policy from
 `USING (auth.role() = 'authenticated')` — every logged-in user reads every market — into tier-scoped
@@ -27,6 +28,13 @@ been avoiding local testing over a constraint that didn't exist.
 
 **Ladder:** local → prod for now (prod holds only seeded test data). A separate staging project
 becomes a hard gate at step 10, before real users.
+
+**Numbering note.** `0023` was consumed by `0023_fix_league_notification_and_realtime.sql`, a
+bug-fix migration found while building the E2E suite: `close_league_week()` inserted a `league_win`
+notification whose enum value never existed, so **every league week-close with a winner aborted the
+whole payout transaction**. Only the no-winner carry-over branch avoided the INSERT, which is why it
+went unnoticed. It also adds `league_messages` to the realtime publication, fixing league chat not
+updating live. De-trending therefore starts at **0024** and profiles lands at **0033**.
 
 ---
 
@@ -48,7 +56,7 @@ Six things found while reading that are wrong in the repo today. Each is fixed i
 ## Prod state (verified)
 
 11 markets (6 actions, 2 sports, 2 social, **1 trending**) · 11 suggestions (**1 trending**) ·
-20 positions · 10 profiles · 8 leagues · 4 comments · ledger shows 22 matched migration pairs.
+20 positions · 10 profiles · 8 leagues · 4 comments.
 
 De-trending touches **two rows** — which is why it goes first among migrations, as a cheap rehearsal
 of the full verification protocol.
@@ -59,41 +67,46 @@ of the full verification protocol.
 
 *No schema changes. This builds the thing that makes every later change safe.*
 
+> **Status 2026-07-29:** steps 1–3 are done. Steps 4–6 were partly built, via a **Playwright** suite
+> rather than the Vitest one this plan originally specified — that's a fine substitution and the
+> descriptions below have been rewritten to match what exists. What's still missing is the part that
+> actually gates step 10: the tier-visibility assertions and the seven-user matrix.
+
 ## 1. Doc corrections (30 min) — ✅ DONE
 
 Findings 1–4 above, corrected in `CLAUDE.md` and `docs/forecast-data-model-spec.md`, each marked so
 the next reader knows the old guidance was wrong rather than merely stale. Spec §10.7 headers and all
 cross-references (§8 decisions, §10.8 gotchas, in-block forward refs) renumbered to match §7.
 
-## 2. Local Supabase stack (45 min)
+## 2. Local Supabase stack (45 min) — ✅ DONE
 
-`npx supabase init` — creates the missing `supabase/config.toml`; the project is linked via
-`supabase/.temp/linked-project.json` but was never `init`-ed. Then `npx supabase start` (first run
-pulls images). Put the local keys in a gitignored `.env.test.local`.
+Stack is up: API `54321`, DB `54322`, Studio `54323`, Mailpit `54324`. Config lives in `.env.test`,
+**committed on purpose** — every value is one of Supabase's well-known local demo keys, identical on
+every machine running `supabase start` and worthless outside your own Docker. `.gitignore` carries an
+explicit `!.env.test` negation.
 
-**Done when:** `supabase status` shows all services up, Studio loads at `localhost:54323`, and
-`migration list` still shows the 22 remote pairs.
+`playwright.config.ts` forwards those keys through `webServer.env`, which is what stops `.env.local`
+(pointed at the hosted project) from being picked up during a test run.
 
-## 3. Migration history replay (45 min)
+## 3. Migration history replay (45 min) — ✅ DONE
 
-`npx supabase db reset` replays 0001 → 0022 against a fresh local DB.
+All 23 migrations apply to a fresh local DB; `migration list --local` shows 23 matched pairs.
 
-This is the **first time the full history has ever run start to finish** — 0001–0021 were originally
-hand-applied through the dashboard SQL editor, one at a time, against a database that already had
-state. Expect breakage: ordering issues, statements assuming prior manual state, or the
-`0005_seed.sql` dependency on an existing admin auth user. Budget past the 45 min.
+Worth noting it replayed **clean on the first attempt**, which was not the expected outcome —
+0001–0021 were originally hand-applied one at a time through the dashboard SQL editor against a
+database that already had state, so ordering bugs were likely. There were none.
 
-Fix by **adding a corrective migration**, never by editing an applied file — local and prod history
-must stay identical (spec §10.9).
+Rule still stands for everything ahead: fix by **adding a corrective migration**, never by editing an
+applied file (spec §10.9).
 
-## 4. Seven-user test matrix (60 min)
+## 4. Seven-user tier matrix (60 min) — ⚠️ PARTIAL
 
-New `supabase/seed-test-users.ts`, reusing the env-loading and service-client setup in
-`supabase/seed.ts` (lines 17–49).
+`e2e/helpers/fixtures.ts` seeds five users — `admin`, `owner`, `alice`, `bob`, `broke` — shaped for
+betting, league and admin flows. Those don't test tier visibility, because none of them differ by
+*membership* in the way the boundaries require.
 
-Auth is magic-link so these users have no passwords — create them with
-`admin.auth.admin.createUser({ email, password, email_confirm: true })` so the harness can call
-`signInWithPassword`.
+The matrix needs the adversarial pairs: someone in Alice's league but **not** her circle, someone in
+her circle but **not** her league, someone isolated from both, and a public-only floor.
 
 | User | League A | League B | Circle X | Circle Y | Exists to prove |
 |---|---|---|---|---|---|
@@ -105,30 +118,34 @@ Auth is magic-link so these users have no passwords — create them with
 | Mod | | | moderator | | approves Circle X suggestions |
 | Admin | | | | | platform admin |
 
-Circle rows land in step 8 once `circles` exists. Seed users + leagues now, idempotently.
+Extend `fixtures.ts` with Carol, Dave, Erin and Mod. **Circle rows can't land until step 8 creates
+`circles`** — so seed the users and leagues now, circles later, both idempotently.
 
-**Done when:** runs twice with no error; all seven in local `auth.users` with correct membership.
+## 5. RLS harness (60 min) — ⚠️ INFRA DONE, ASSERTIONS MISSING
 
-## 5. RLS test harness (60 min)
+Built and working: `e2e/helpers/{auth,db,env,seed,fixtures}.ts`, `global-setup.ts` /
+`global-teardown.ts`, `smoke.spec.ts`, and a gated `/api/test/login` route that 404s unless
+`E2E_TEST_SECRET` is set.
 
-New `src/__tests__/rls/helpers.ts`, per spec §10.4 — one authenticated client per user, plus a
-service-role client for setup/teardown only.
+The guardrail this plan called for **is in place** — `e2e/helpers/env.ts:42-49` refuses to run
+against any non-loopback host, so the suite cannot be aimed at prod and cannot mint password users
+there.
 
-Two guardrails that decide whether the suite is trustworthy:
+Still missing, and this is what gates step 10:
 
-- **Refuse to run against a non-localhost URL.** A suite pointed at prod that "passes" proves nothing
-  and creates password users in production.
-- **`expectCannotRead(client, table, id)`** asserting `error === null && data.length === 0`. RLS
-  *filters*, it does not throw — asserting on an error is the classic false-green.
+- The **tier-visibility assertions** themselves (they land in 10a, written red).
+- An `expectCannotRead(client, table, id)` helper asserting `error === null && data.length === 0`.
+  RLS *filters*, it does not throw — asserting on a thrown error is the classic false-green.
+- The matching `expectCannotWrite` for step 10d's negative write cases.
 
-Add a `test:rls` npm script. Vitest already aliases `@` → `src` and runs in node, so no config change.
+## 6. Betting-loop regression (60 min) — ❌ NOT DONE
 
-**Done when:** `npm run test:rls` signs in as a seeded user and passes a real assertion.
+`package.json` declares `test:e2e:loop` → `e2e/betting-loop.spec.ts`, **but that file doesn't
+exist** — the script fails if run. This is the tripwire for "the migration broke the product," and it
+re-runs after every migration from here on, so it needs to exist before step 7.
 
-## 6. Betting-loop regression (60 min)
-
-`src/__tests__/rls/betting-loop.test.ts`, automating spec §10.6. Runs after **every** migration from
-here on — the tripwire for "this migration broke the product."
+Mostly assembly rather than new machinery: `e2e/helpers/seed.ts` already exports `createMarket`,
+`placeBetAs`, `resolveMarketAs`, `setCoins`, `createLeague` and `startWeek`.
 
 1. Claim daily bonus → balance rises, `last_daily_claim` set, second same-day claim rejected.
 2. Place bet → position created, pools shift, probability recomputes via trigger, history row
@@ -137,7 +154,7 @@ here on — the tripwire for "this migration broke the product."
    `market_resolved` + `payout_received` notifications created.
 4. Leaderboard reflects balances; weekly-top-earner RPC returns the right user.
 
-**Done when:** green locally. This is the baseline every later step re-runs.
+**Done when:** green locally against the local stack.
 
 ---
 
