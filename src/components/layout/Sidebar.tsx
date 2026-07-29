@@ -92,7 +92,7 @@ export function Sidebar({ profile, className, isAdmin }: SidebarProps) {
             className="font-bold text-base"
             style={{ color: "var(--color-ink-primary)" }}
           >
-            GDS Forecast
+            Forecast
           </span>
         </Link>
       </div>

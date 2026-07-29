@@ -118,7 +118,7 @@ export function AdminCreateMarket() {
               type="text"
               required
               maxLength={150}
-              placeholder="e.g. Will GDS win the championship?"
+              placeholder="e.g. Will our team win the championship?"
               className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all duration-150"
               style={{
                 backgroundColor: "var(--color-bg)",

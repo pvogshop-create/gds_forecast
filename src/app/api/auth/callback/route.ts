@@ -18,7 +18,6 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient();
 
   let userId: string | null = null;
-  let userEmail: string | null = null;
 
   if (tokenHash && type) {
     // Validate type before passing to Supabase — only accept known magic-link values
@@ -35,7 +34,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/login?error=auth_failed", origin));
     }
     userId = data.user.id;
-    userEmail = data.user.email ?? null;
   } else if (code) {
     // OAuth PKCE flow
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
@@ -44,24 +42,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/login?error=auth_failed", origin));
     }
     userId = data.user.id;
-    userEmail = data.user.email ?? null;
   } else {
     return NextResponse.redirect(new URL("/login?error=missing_code", origin));
   }
 
-  // ── Hard enforcement: only @gds.org emails are permitted (admins exempt) ──────
-  const email = userEmail ?? "";
-  const isGdsUser = email.endsWith("@gds.org");
-  const adminEmails = new Set(
-    (process.env.ADMIN_EMAIL ?? "").split(",").map((e) => e.trim()).filter(Boolean)
-  );
-  const isAdminEmail = adminEmails.has(email);
-  if (!isGdsUser && !isAdminEmail) {
-    await supabase.auth.signOut();
-    return NextResponse.redirect(
-      new URL("/login?error=unauthorized_domain", origin)
-    );
-  }
+  // Any authenticated email is welcome — sign-in is open to all.
 
   // ── Check if onboarding is needed (username not yet set) ─────────────────
   const { data: profile } = await supabase

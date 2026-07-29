@@ -11,12 +11,12 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "GDS Forecast | Prediction Markets",
+  title: "Forecast | Prediction Markets",
   description:
-    "Predict the future with your GDS colleagues. Bet coins on outcomes — no real money involved.",
+    "Predict the future with your friends. Bet coins on outcomes — no real money involved.",
   openGraph: {
-    title: "GDS Forecast",
-    description: "Georgetown Day School prediction markets platform.",
+    title: "Forecast",
+    description: "Play-money prediction markets.",
     type: "website",
   },
 };

@@ -23,7 +23,7 @@ export function LoginButton() {
       return;
     }
 
-    // Basic email format check — server enforces domain rules
+    // Basic email format check — any valid email is accepted
     if (!trimmed.includes("@") || !trimmed.includes(".")) {
       setErrorMsg("Please enter a valid email address.");
       setMode("error");
@@ -92,7 +92,7 @@ export function LoginButton() {
           setEmail(e.target.value);
           if (mode === "error") setMode("idle");
         }}
-        placeholder="yourname@gds.org"
+        placeholder="you@email.com"
         autoComplete="email"
         autoFocus
         className="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all duration-150"

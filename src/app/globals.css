@@ -5,34 +5,34 @@
   /* Typography */
   --font-sans: "Inter", system-ui, sans-serif;
 
-  /* Primary green palette */
-  --color-primary:        #1A6B3C;
-  --color-primary-hover:  #155C32;
-  --color-primary-light:  #E8F5EE;
+  /* Primary violet palette */
+  --color-primary:        #7C3AED;
+  --color-primary-hover:  #6D28D9;
+  --color-primary-light:  #F3EEFF;
 
-  /* Accent — bright green (YES buttons, success) */
-  --color-accent:         #4ADE80;
-  --color-accent-hover:   #22C55E;
+  /* Accent — bright purple (YES buttons, highlights) */
+  --color-accent:         #A855F7;
+  --color-accent-hover:   #9333EA;
 
-  /* Button green */
-  --color-btn:            #2E9E5E;
-  --color-btn-hover:      #268A51;
+  /* Button violet */
+  --color-btn:            #7C3AED;
+  --color-btn-hover:      #6D28D9;
 
   /* Backgrounds */
-  --color-bg:             #F8FAFB;
+  --color-bg:             #FAFAFC;
   --color-bg-card:        #FFFFFF;
-  --color-bg-hover:       #F0FAF4;
-  --color-bg-subtle:      #F1F5F2;
+  --color-bg-hover:       #F5F2FF;
+  --color-bg-subtle:      #F4F3F7;
 
   /* Text */
-  --color-ink-primary:    #0C1A12;
-  --color-ink-secondary:  #4A6558;
-  --color-ink-tertiary:   #94B0A4;
+  --color-ink-primary:    #14121C;
+  --color-ink-secondary:  #5A5568;
+  --color-ink-tertiary:   #9A94AD;
   --color-ink-inverse:    #FFFFFF;
 
   /* Markets */
-  --color-yes:            #1A6B3C;
-  --color-yes-bg:         #E8F5EE;
+  --color-yes:            #7C3AED;
+  --color-yes-bg:         #F3EEFF;
   --color-no:             #EF4444;
   --color-no-bg:          #FEF2F2;
 
@@ -43,14 +43,14 @@
   --color-coin:           #F59E0B;
 
   /* Borders */
-  --color-border:         rgba(0, 0, 0, 0.07);
-  --color-border-focus:   rgba(26, 107, 60, 0.4);
+  --color-border:         rgba(20, 18, 28, 0.08);
+  --color-border-focus:   rgba(124, 58, 237, 0.4);
 
   /* Category badges */
   --color-cat-sports:     #3B82F6;
   --color-cat-actions:    #F59E0B;
-  --color-cat-social:     #A855F7;
-  --color-cat-trending:   #2E9E5E;
+  --color-cat-social:     #D946EF;
+  --color-cat-trending:   #7C3AED;
 
   /* Border radius */
   --radius-sm:   8px;
@@ -62,7 +62,7 @@
   /* Shadows */
   --shadow-card:       0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
   --shadow-card-hover: 0 4px 16px rgba(0,0,0,0.07), 0 1px 4px rgba(0,0,0,0.04);
-  --shadow-glow:       0 0 20px rgba(26,107,60,0.18);
+  --shadow-glow:       0 0 20px rgba(124,58,237,0.18);
 
   /* Animation */
   --duration-base: 200ms;
@@ -99,9 +99,9 @@ body {
 .skeleton {
   background: linear-gradient(
     90deg,
-    #e8f0eb 25%,
-    #f0f7f2 50%,
-    #e8f0eb 75%
+    #ece9f5 25%,
+    #f4f1fb 50%,
+    #ece9f5 75%
   );
   background-size: 400% 100%;
   animation: skeleton-shimmer 1.4s ease infinite;

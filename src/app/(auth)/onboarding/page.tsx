@@ -37,7 +37,7 @@ export default async function OnboardingPage() {
           className="text-3xl font-bold tracking-tight"
           style={{ color: "var(--color-ink-primary)" }}
         >
-          Welcome to GDS Forecast
+          Welcome to Forecast
         </h1>
         <p
           className="mt-1 text-sm"

@@ -21,8 +21,8 @@ export default function GlobalError({
         style={{
           margin: 0,
           fontFamily: "system-ui, sans-serif",
-          backgroundColor: "#0f1117",
-          color: "#e2e8f0",
+          backgroundColor: "#FAFAFC",
+          color: "#14121C",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -49,7 +49,7 @@ export default function GlobalError({
           <p
             style={{
               fontSize: "13px",
-              color: "#94a3b8",
+              color: "#5A5568",
               marginBottom: "20px",
             }}
           >
@@ -61,7 +61,7 @@ export default function GlobalError({
               padding: "8px 20px",
               borderRadius: "8px",
               border: "none",
-              backgroundColor: "#3b82f6",
+              backgroundColor: "#7C3AED",
               color: "white",
               fontSize: "13px",
               fontWeight: 600,

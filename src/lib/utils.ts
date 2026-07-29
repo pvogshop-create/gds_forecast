@@ -79,8 +79,8 @@ export function getCategoryColors(category: MarketCategory): {
   const colors: Record<MarketCategory, { bg: string; text: string }> = {
     sports: { bg: "bg-blue-50", text: "text-blue-700" },
     actions: { bg: "bg-amber-50", text: "text-amber-700" },
-    social: { bg: "bg-purple-50", text: "text-purple-700" },
-    trending: { bg: "bg-emerald-50", text: "text-emerald-700" },
+    social: { bg: "bg-fuchsia-50", text: "text-fuchsia-700" },
+    trending: { bg: "bg-violet-50", text: "text-violet-700" },
   };
   return colors[category];
 }
@@ -112,6 +112,6 @@ export function formatDisplayName(
 ): string {
   if (displayName) return displayName;
   if (!username) return "Unknown";
-  // If the username looks like an email (e.g. john.doe@gds.org), show only the local part
+  // If the username looks like an email (e.g. john.doe@example.com), show only the local part
   return username.includes("@") ? (username.split("@")[0] ?? username) : username;
 }

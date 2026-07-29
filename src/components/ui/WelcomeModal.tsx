@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "./Modal";
 
-const STORAGE_KEY = "gds_welcome_seen";
+const STORAGE_KEY = "forecast_welcome_seen";
 
 export function WelcomeModal() {
   const [isOpen, setIsOpen] = useState(false);
@@ -29,7 +29,7 @@ export function WelcomeModal() {
           className="text-lg font-bold mb-2"
           style={{ color: "var(--color-ink-primary)" }}
         >
-          Welcome to GDS Forecast!
+          Welcome to Forecast!
         </h2>
 
         <p
@@ -37,7 +37,7 @@ export function WelcomeModal() {
           style={{ color: "var(--color-ink-secondary)" }}
         >
           You start with <strong style={{ color: "var(--color-coin)" }}>1,000 coins</strong>.
-          Use them to bet on what you think will happen at GDS — sports games, social events, and more.
+          Use them to bet on what you think will happen — sports games, social events, and more.
         </p>
 
         <p

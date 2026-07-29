@@ -18,8 +18,6 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
 
   const errorMessages: Record<string, string> = {
-    unauthorized_domain:
-      "Only GDS students and staff can access this platform. Please sign in with your @gds.org Google account.",
     auth_failed:
       "Sign-in failed. Please try again.",
     missing_code:
@@ -54,13 +52,13 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           className="text-3xl font-bold tracking-tight"
           style={{ color: "var(--color-ink-primary)" }}
         >
-          GDS Forecast
+          Forecast
         </h1>
         <p
           className="mt-1 text-sm"
           style={{ color: "var(--color-ink-secondary)" }}
         >
-          Georgetown Day School &bull; Prediction Markets
+          Prediction Markets
         </p>
       </div>
 
@@ -107,7 +105,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           className="text-xs text-center mt-5 play-money-badge"
           style={{ color: "var(--color-ink-tertiary)" }}
         >
-          Access restricted to GDS organization members.
+          Play-money prediction markets — anyone can join.
         </p>
       </div>
 

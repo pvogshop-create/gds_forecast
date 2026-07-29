@@ -127,7 +127,7 @@ export function SuggestForm({ userId }: SuggestFormProps) {
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Will GDS win the championship?"
+            placeholder="e.g. Will our team win the championship?"
             maxLength={150}
             required
             className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all duration-150"
