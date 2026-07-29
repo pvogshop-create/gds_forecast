@@ -61,7 +61,14 @@ Tier-first, not category-first. Top-level nav = Home / Explore / your circles / 
 - **Migrations are numbered 0022 onward and applied in order.** Continue the repo's existing `IF NOT EXISTS` / `DROP ... IF EXISTS` / `ADD VALUE IF NOT EXISTS` guards so re-running is idempotent.
 - **Environment ladder:** local (`supabase start`) → staging (a **separate** Supabase project, loaded with a prod snapshot) → prod. Never run an unverified migration against the project real users depend on. (Currently the hosted project holds only test data — see below.) Full protocol + per-migration test plans are spec §10.
 - **Match existing codebase patterns** — state-changing operations go through SECURITY DEFINER RPCs (see `place_bet`), not direct client table writes.
-- After each migration: regenerate types into `src/types/database.ts` (`npx supabase gen types typescript`), then the project must `npm run type-check` and `npm run build` clean.
+- After each migration: **hand-update** `src/types/database.ts` to match the new schema, then the
+  project must `npm run type-check` and `npm run build` clean. That file is **manually written** (see
+  its own header comment) and exports app-shaped types — `MarketCategory`, `Profile`, `Market`, … —
+  that every import in `src/` depends on. Do **not** overwrite it with
+  `npx supabase gen types typescript`: the generator emits a completely differently-shaped `Database`
+  interface and would break the app wholesale. An earlier version of this line said "regenerate";
+  that was a trap, corrected 2026-07-29. If you want generated types as a cross-check, write them to
+  a separate file (`src/types/database.generated.ts`) and diff by eye.
 - **Log each migration** — one line in `MIGRATIONS_LOG.md` (number, date, environment, verified-by).
 - **Play money only.** There is no real-currency path anywhere, ever.
 
@@ -69,9 +76,15 @@ Tier-first, not category-first. Top-level nav = Home / Explore / your circles / 
 - **Supabase CLI is a project devDependency, not global** (`npm -g` needs sudo here, and Supabase
   doesn't support global installs). Run `npx supabase …` **from the repo root** — the link lives in
   `supabase/.temp/linked-project.json`, so from `~` it fails with "Cannot find project ref."
-  Project ref `curtlcoxtnoxljzkrlms`. There is no `supabase/config.toml`; linking works regardless.
-- **Docker is not installed**, so `supabase db dump` and `supabase start` do not work. To inspect the
-  remote schema, probe the PostgREST endpoint with the service-role key from `.env.local`.
+  Project ref `curtlcoxtnoxljzkrlms`. There is no `supabase/config.toml` yet; linking works
+  regardless, but `supabase start` needs one — see the Docker note below.
+- **Docker IS installed and running** — Docker Desktop 4.84.0, engine 29.6.2 (`docker version`
+  reports a live `Server:` block). An earlier note here claimed the opposite and steered the project
+  away from local testing for months; it was wrong, corrected 2026-07-29. `supabase start` and
+  `supabase db dump` therefore both work. The one missing piece is `supabase/config.toml` — the
+  project was never `init`-ed — so run `npx supabase init` once before the first `supabase start`.
+  (Probing the PostgREST endpoint with the service-role key from `.env.local` still works for a
+  quick look at remote data, but it is no longer the only option for schema inspection.)
 - **Never run `npm audit fix --force`.** npm's resolver proposes `next@9.3.3` and
   `eslint-config-next@12` — downgrades of 8 and 4 majors. 12 high-severity advisories are knowingly
   left open (eslint chain is dev-only; postcss and sharp arrive through Next and need an upstream
@@ -108,8 +121,15 @@ or suggest it as an improvement. Conventional Commit messages still apply
 1. **0022** — ✅ **APPLIED** de-brand: rewrite the 7 GDS-titled seeded markets in place (UPDATE, not
    DELETE, to preserve attached positions/comments/history).
 2. **0023** — de-trending: drop the `trending` category enum value (reassign existing rows first via
-   the 3-step enum swap). Note: also delete the `trending` key from `getCategoryColors()` in
-   `src/lib/utils.ts`, and the `/dashboard/trending` route.
+   the 3-step enum swap). App-side, this is small: delete the `trending` key from
+   `getCategoryColors()` **and** `getCategoryLabel()` in `src/lib/utils.ts`, drop the "Trending" pill
+   from `AdminCreateMarket.tsx`, and narrow `MarketCategory` in `src/types/database.ts`.
+   **Do NOT delete the `/dashboard/trending` route in 0023** — an earlier version of this line said
+   to, and that was wrong. That route is the post-login *home feed*; nine files redirect to it
+   (`proxy.ts`, `app/page.tsx`, `api/auth/callback`, `login`, `onboarding`, `OnboardingForm`,
+   `lib/auth.ts`, `Sidebar`, `BottomTabBar`) and the page never filters on `category`. Renaming it is
+   §11 nav work (step 12), and its algorithmic sections plus the Hot Streak / Cold Streak Stat Leader
+   cards — which read `profiles.win_streak` / `loss_streak`, not `category` — must survive that move.
 3. **0024** — `circles` + `circle_members` tables (+ member-count trigger, RLS).
 4. **0025** — market tier columns (`visibility_tier`, `league_id`, `circle_id`) + scope constraint, all defaulting to `public`.
 5. **0026** — tier-aware RLS: the `can_view_market()` helper + rewritten SELECT policies on all market-joined tables. **The critical migration — ships only when the full positive AND negative RLS matrix is green.**
@@ -135,5 +155,5 @@ The hosted Supabase project currently holds only **seeded test accounts** (handl
 ## Key references
 - `docs/forecast-data-model-spec.md` — full spec: data model (§§1–9), verification plan (§10), navigation/layout (§11), locked decisions (§8, §11.4). **Read the relevant section before each migration.**
 - `supabase/migrations/` — existing schema through 0021.
-- `src/types/database.ts` — regenerate after schema changes.
+- `src/types/database.ts` — hand-written; hand-update after schema changes (never `gen types` over it).
 - `MIGRATIONS_LOG.md` — one line per migration; the audit trail.
