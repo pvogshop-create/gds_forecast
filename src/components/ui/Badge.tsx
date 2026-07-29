@@ -38,7 +38,8 @@ export function NewBadge({ className }: { className?: string }) {
   return (
     <Badge
       className={cn(
-        "bg-[var(--color-coin)] bg-opacity-15 text-[var(--color-coin)]",
+        // Tailwind v4 removed bg-opacity-*; the slash modifier is the replacement.
+        "bg-[var(--color-coin)]/15 text-[var(--color-coin)]",
         className
       )}
     >
@@ -51,7 +52,8 @@ export function ClosingSoonBadge({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-50 text-orange-600",
+        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+        "bg-[var(--color-warning)]/12 text-[var(--color-warning)]",
         className
       )}
     >
@@ -65,11 +67,12 @@ export function LiveBadge({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600",
+        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
+        "bg-[var(--color-danger)]/10 text-[var(--color-danger)]",
         className
       )}
     >
-      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+      <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-danger)] animate-pulse" />
       LIVE
     </span>
   );
@@ -81,15 +84,22 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {
+  // Green / red / amber here are load-bearing: they encode outcome, not brand.
+  // Neutral states use greys so they read as "no outcome yet".
+  const SUCCESS = "bg-[var(--color-success)]/12 text-[var(--color-success)]";
+  const DANGER = "bg-[var(--color-danger)]/10 text-[var(--color-danger)]";
+  const WARNING = "bg-[var(--color-warning)]/12 text-[var(--color-warning)]";
+  const NEUTRAL = "bg-neutral-100 text-neutral-600";
+
   const styles: Record<string, string> = {
-    open: "bg-emerald-50 text-emerald-700",
-    closed: "bg-gray-100 text-gray-600",
-    resolved_yes: "bg-emerald-50 text-emerald-700",
-    resolved_no: "bg-red-50 text-red-700",
-    cancelled: "bg-gray-100 text-gray-500",
-    pending: "bg-amber-50 text-amber-700",
-    approved: "bg-emerald-50 text-emerald-700",
-    rejected: "bg-red-50 text-red-700",
+    open: SUCCESS,
+    closed: NEUTRAL,
+    resolved_yes: SUCCESS,
+    resolved_no: DANGER,
+    cancelled: "bg-neutral-100 text-neutral-500",
+    pending: WARNING,
+    approved: SUCCESS,
+    rejected: DANGER,
   };
 
   const labels: Record<string, string> = {
@@ -104,7 +114,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   };
 
   return (
-    <Badge className={cn(styles[status] ?? "bg-gray-100 text-gray-600", className)}>
+    <Badge className={cn(styles[status] ?? NEUTRAL, className)}>
       {labels[status] ?? status}
     </Badge>
   );

@@ -18,16 +18,18 @@
   --color-btn:            #7C3AED;
   --color-btn-hover:      #6D28D9;
 
-  /* Backgrounds */
-  --color-bg:             #FAFAFC;
+  /* Backgrounds — neutral. Page sits a hair off pure white so white cards lift. */
+  --color-bg:             #FAFAFA;
   --color-bg-card:        #FFFFFF;
-  --color-bg-hover:       #F5F2FF;
-  --color-bg-subtle:      #F4F3F7;
+  --color-bg-hover:       #F5F2FF;   /* stays faintly purple: hover reads as brand */
+  --color-bg-subtle:      #F5F5F5;
 
-  /* Text */
-  --color-ink-primary:    #14121C;
-  --color-ink-secondary:  #5A5568;
-  --color-ink-tertiary:   #9A94AD;
+  /* Text — true neutral greys, no purple cast.
+     Contrast vs #FFFFFF: primary ~20:1, secondary ~8.9:1, tertiary ~5.1:1 — all WCAG AA.
+     (tertiary was #9A94AD at ~3.2:1, which failed AA.) */
+  --color-ink-primary:    #0A0A0A;
+  --color-ink-secondary:  #4A4A4A;
+  --color-ink-tertiary:   #6E6E73;
   --color-ink-inverse:    #FFFFFF;
 
   /* Markets */
@@ -43,14 +45,12 @@
   --color-coin:           #F59E0B;
 
   /* Borders */
-  --color-border:         rgba(20, 18, 28, 0.08);
-  --color-border-focus:   rgba(124, 58, 237, 0.4);
+  --color-border:         rgba(10, 10, 10, 0.08);
+  --color-border-focus:   rgba(124, 58, 237, 0.4);   /* purple focus ring */
 
-  /* Category badges */
-  --color-cat-sports:     #3B82F6;
-  --color-cat-actions:    #F59E0B;
-  --color-cat-social:     #D946EF;
-  --color-cat-trending:   #7C3AED;
+  /* NOTE: the former --color-cat-sports/-actions/-social/-trending tokens were
+     removed — they were referenced nowhere. Category chip colours come from
+     getCategoryColors() in src/lib/utils.ts. */
 
   /* Border radius */
   --radius-sm:   8px;
@@ -99,9 +99,9 @@ body {
 .skeleton {
   background: linear-gradient(
     90deg,
-    #ece9f5 25%,
-    #f4f1fb 50%,
-    #ece9f5 75%
+    #ededed 25%,
+    #f7f7f7 50%,
+    #ededed 75%
   );
   background-size: 400% 100%;
   animation: skeleton-shimmer 1.4s ease infinite;

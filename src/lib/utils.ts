@@ -71,16 +71,20 @@ export function getCategoryLabel(category: MarketCategory): string {
   return labels[category];
 }
 
-// Get Tailwind color classes for a market category badge
+// Get Tailwind color classes for a market category badge.
+// Brand palette is black / white / purple, so categories are distinguished by
+// depth within one hue rather than by different hues. Red, green, and amber are
+// reserved for meaning (NO, win/loss, coins) and must not appear here.
 export function getCategoryColors(category: MarketCategory): {
   bg: string;
   text: string;
 } {
   const colors: Record<MarketCategory, { bg: string; text: string }> = {
-    sports: { bg: "bg-blue-50", text: "text-blue-700" },
-    actions: { bg: "bg-amber-50", text: "text-amber-700" },
-    social: { bg: "bg-fuchsia-50", text: "text-fuchsia-700" },
-    trending: { bg: "bg-violet-50", text: "text-violet-700" },
+    sports: { bg: "bg-violet-100", text: "text-violet-900" },
+    actions: { bg: "bg-violet-50", text: "text-violet-700" },
+    social: { bg: "bg-purple-50", text: "text-purple-600" },
+    // `trending` is removed by migration 0023 (de-trending) — delete this key then.
+    trending: { bg: "bg-neutral-100", text: "text-neutral-700" },
   };
   return colors[category];
 }

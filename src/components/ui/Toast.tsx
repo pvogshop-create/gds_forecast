@@ -76,16 +76,20 @@ interface ToastItemProps {
 }
 
 function ToastItem({ toast: t, onDismiss }: ToastItemProps) {
+  // success/error keep their semantic green and red; "info" is brand voice, not an
+  // outcome, so it takes the purple accent rather than the old blue.
   const icons = {
-    success: <CheckCircle size={16} className="text-emerald-600" />,
-    error: <AlertCircle size={16} className="text-red-600" />,
-    info: <Info size={16} className="text-blue-600" />,
+    success: (
+      <CheckCircle size={16} className="text-[var(--color-success)]" />
+    ),
+    error: <AlertCircle size={16} className="text-[var(--color-danger)]" />,
+    info: <Info size={16} className="text-[var(--color-primary)]" />,
   };
 
   const bgColors = {
-    success: "bg-white border-emerald-200",
-    error: "bg-white border-red-200",
-    info: "bg-white border-blue-200",
+    success: "bg-white border-[var(--color-success)]/30",
+    error: "bg-white border-[var(--color-danger)]/30",
+    info: "bg-white border-[var(--color-primary)]/30",
   };
 
   return (
