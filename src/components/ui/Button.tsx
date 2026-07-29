@@ -25,7 +25,7 @@ const VARIANTS: Record<ButtonVariant, string> = {
     "bg-[var(--color-danger)] text-white hover:opacity-90 active:scale-[0.98] focus-visible:ring-[var(--color-danger)] rounded-full",
   // Tailwind v4 removed border-opacity-*; the slash modifier on the colour is the
   // replacement. Previously these borders rendered fully opaque, not at 30%.
-  yes: "bg-[var(--color-yes-bg)] text-[var(--color-yes)] hover:bg-[var(--color-primary)] hover:text-white active:scale-[0.98] focus-visible:ring-[var(--color-primary)] rounded-xl font-bold border border-[var(--color-yes)]/30",
+  yes: "bg-[var(--color-yes-bg)] text-[var(--color-yes)] hover:bg-[var(--color-yes)] hover:text-white active:scale-[0.98] focus-visible:ring-[var(--color-yes)] rounded-xl font-bold border border-[var(--color-yes)]/30",
   no: "bg-[var(--color-no-bg)] text-[var(--color-no)] hover:bg-[var(--color-danger)] hover:text-white active:scale-[0.98] focus-visible:ring-[var(--color-danger)] rounded-xl font-bold border border-[var(--color-no)]/30",
 };
 

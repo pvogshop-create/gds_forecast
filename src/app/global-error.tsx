@@ -61,6 +61,9 @@ export default function GlobalError({
               padding: "8px 20px",
               borderRadius: "8px",
               border: "none",
+              // Hardcoded on purpose: global-error renders its own <html>/<body>
+              // and never imports globals.css, so var(--color-primary) would
+              // resolve to nothing here. Keep in sync with the token manually.
               backgroundColor: "#7C3AED",
               color: "white",
               fontSize: "13px",

@@ -32,9 +32,12 @@
   --color-ink-tertiary:   #6E6E73;
   --color-ink-inverse:    #FFFFFF;
 
-  /* Markets */
-  --color-yes:            #7C3AED;
-  --color-yes-bg:         #F3EEFF;
+  /* Markets — YES/OVER green, NO/UNDER red. This pair is semantic, not brand:
+     direction of the bet must be readable at a glance, so it stays out of the
+     black/white/purple palette. --color-yes is deep enough (~5.5:1 on white) to
+     serve as button text, which #10B981 is not. */
+  --color-yes:            #047857;
+  --color-yes-bg:         #ECFDF5;
   --color-no:             #EF4444;
   --color-no-bg:          #FEF2F2;
 
