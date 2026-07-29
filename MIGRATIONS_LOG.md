@@ -33,4 +33,14 @@ CLI ledger from the real schema, which is what required the 2026-07-29 repair ab
 | # | Date | Environment | Verified by |
 |---|---|---|---|
 | 0022_debrand_market_content | 2026-07-29 | prod (`curtlcoxtnoxljzkrlms`) | `db push` after a clean `--dry-run` showing 0022 as the only queued migration. Post-apply: PostgREST GDS probe returned `count: 0` (was 7); `positions` count unchanged at 20, so no bet history cascaded away; `migration list` shows 22 matched local/remote pairs. |
-| _next: 0023 (de-trending — drop the `trending` category enum value)_ | | | |
+| 0023_fix_league_notification_and_realtime | 2026-07-29 | **local only** | `supabase migration up --local`. Post-apply `pg_enum` shows `notification_type` ending in `league_win` (9 values); `pg_publication_tables` shows `league_messages` in `supabase_realtime`. Re-run applied 0 migrations (idempotent). **Not yet on prod** — needs a `db push` when you next promote. |
+| _next: 0024 (de-trending — drop the `trending` category enum value)_ | | | |
+
+### Why 0023 exists (it was not in the original plan)
+
+`close_league_week()` inserts a `league_win` notification, but that value was never added to the
+`notification_type` enum — so every league week-close **with a winner** aborted the whole payout
+transaction. Separately, `league_messages` was never added to the realtime publication, so league
+chat never updated live. Both were found while building the E2E suite (see `TESTING.md`), which
+could not test the tournament flow without them. This consumed `0023`, so the planned sequence
+shifted +1: de-trending is now **0024** and profiles lands at **0033**.
