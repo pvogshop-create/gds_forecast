@@ -400,20 +400,29 @@ After the refactor:
 
 ## 7. Migration order
 
-Each migration is independently deployable and leaves the app working. Numbering continues from your current `0021`.
+Each migration is independently deployable and leaves the app working.
 
-1. **0022 — De-trending.** Reassign `trending` markets, swap the `market_category` enum (§3.2). No tier logic yet. Lowest risk.
-2. **0023 — Circles tables.** `circles`, `circle_members`, member-count trigger, their RLS. No markets touch circles yet, so nothing else changes.
-3. **0024 — Market tier columns.** Add `visibility_tier` / `league_id` / `circle_id` + the scope constraint to `markets`, all defaulting to public (§3.1). Existing markets unaffected.
-4. **0025 — Tier-aware RLS.** The `can_view_market()` helper and the rewritten SELECT policies on all market-joined tables (§4). **Ship with the test suite from §4 green.** This is the migration that, if wrong, leaks data — treat it with the most care.
-5. **0026 — League gating + circle link.** `tournament_enabled`, nullable `buy_in_coins`, `leagues.circle_id` (§3.3). All existing leagues become non-tournament private spaces; flip individual leagues on as desired.
-6. **0027 — Model (b) scoring.** Reshape `league_bets` (drop `week_id`), rewrite the gross-payout clause in `get_live_week_scores` and `close_league_week` (§3.5).
-7. **0028 — Scoped creation + suggestions.** `create_league_market` RPC (the one direct member-create path), market insert policy, the circle suggestion → moderator-approval flow with line-setting, `market_suggestions.target_tier` / `target_circle_id` (§3.7), scoped incident-report eligibility + scaled threshold (§3.8).
-8. **0029 — Comments threading + comment reactions.** `parent_comment_id`, `comment_reactions` table (§3.6, §2.4).
-9. **0030 — Activity feed scope + notifications.** `activity_feed.circle_id`, new notification types, audit every feed-insert site for tier context (§3.10, §3.9).
-10. **0031 — Profiles.** `bio` column (§3.11). Public profile pages and profile edit are app work that can land alongside.
+> **Renumbered +1 on 2026-07-29.** `0022` was consumed by the de-brand data migration
+> (`0022_debrand_market_content.sql`, applied), which rewrote the 7 GDS-titled seeded markets in
+> place. De-trending therefore became **0023** and every migration below shifted up one. The list
+> here reflects the current numbering; earlier drafts of this section had de-trending at 0022.
 
-The De-GDS cleanup (removing the `@gds.org` auth check and GDS copy, deleting dev test leagues) is **application** work, not migrations, and should happen first in parallel — it can't break the betting loop and it unblocks external testers.
+0. **0022 — De-brand seed content.** ✅ Applied 2026-07-29. `UPDATE` the 7 GDS-named markets' titles
+   and descriptions in place; no `DELETE`, so attached positions/comments/history survive.
+1. **0023 — De-trending.** Reassign `trending` markets, swap the `market_category` enum (§3.2). No tier logic yet. Lowest risk.
+2. **0024 — Circles tables.** `circles`, `circle_members`, member-count trigger, their RLS. No markets touch circles yet, so nothing else changes.
+3. **0025 — Market tier columns.** Add `visibility_tier` / `league_id` / `circle_id` + the scope constraint to `markets`, all defaulting to public (§3.1). Existing markets unaffected.
+4. **0026 — Tier-aware RLS.** The `can_view_market()` helper and the rewritten SELECT policies on all market-joined tables (§4). **Ship with the test suite from §4 green.** This is the migration that, if wrong, leaks data — treat it with the most care.
+5. **0027 — League gating + circle link.** `tournament_enabled`, nullable `buy_in_coins`, `leagues.circle_id` (§3.3). All existing leagues become non-tournament private spaces; flip individual leagues on as desired.
+6. **0028 — Model (b) scoring.** Reshape `league_bets` (drop `week_id`), rewrite the gross-payout clause in `get_live_week_scores` and `close_league_week` (§3.5).
+7. **0029 — Scoped creation + suggestions.** `create_league_market` RPC (the one direct member-create path), market insert policy, the circle suggestion → moderator-approval flow with line-setting, `market_suggestions.target_tier` / `target_circle_id` (§3.7), scoped incident-report eligibility + scaled threshold (§3.8).
+8. **0030 — Comments threading + comment reactions.** `parent_comment_id`, `comment_reactions` table (§3.6, §2.4).
+9. **0031 — Activity feed scope + notifications.** `activity_feed.circle_id`, new notification types, audit every feed-insert site for tier context (§3.10, §3.9).
+10. **0032 — Profiles.** `bio` column (§3.11). Public profile pages and profile edit are app work that can land alongside.
+
+The De-GDS cleanup (removing the `@gds.org` auth check and GDS copy, deleting dev test leagues) is
+**application** work, not migrations. ✅ Done 2026-07-29 — the auth check and copy are gone and the
+palette is recolored; the dev test leagues are still outstanding.
 
 ---
 

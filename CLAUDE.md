@@ -72,18 +72,27 @@ or suggest it as an improvement. Conventional Commit messages still apply
 (`type(scope): description`).
 
 ## Migration sequence
-0. **De-GDS cleanup first (app work, no migration):** remove the hard `@gds.org` auth check in the callback, strip GDS-specific copy (login, sidebar, layout metadata, placeholders), delete the dev test leagues. Unblocks outside testers; no RLS risk.
-1. **0022** — de-trending: drop the `trending` category enum value (reassign existing rows first via the 3-step enum swap).
-2. **0023** — `circles` + `circle_members` tables (+ member-count trigger, RLS).
-3. **0024** — market tier columns (`visibility_tier`, `league_id`, `circle_id`) + scope constraint, all defaulting to `public`.
-4. **0025** — tier-aware RLS: the `can_view_market()` helper + rewritten SELECT policies on all market-joined tables. **The critical migration — ships only when the full positive AND negative RLS matrix is green.**
-5. **0026** — league gating (`tournament_enabled`, nullable `buy_in_coins`) + `leagues.circle_id`.
-6. **0027** — model (b) scoring: reshape `league_bets`, rewrite the two tournament scoring functions.
-7. **0028** — scoped creation (`create_league_market` RPC) + circle suggestion→approval flow + scoped incident reports.
-8. **0029** — comment threading (`parent_comment_id`) + `comment_reactions`.
-9. **0030** — activity-feed tier scoping + new notification types.
-10. **0031** — profiles (`bio`), public profile pages, profile edit.
-11. **Then** the §11 navigation + presentation overhaul (tier-first nav, comment-section UI, Stat Leaders).
+> **Numbering shifted +1 on 2026-07-29.** `0022` was taken by the de-brand data migration
+> (`0022_debrand_market_content.sql`), so de-trending is now **0023** and everything after moves up
+> one. The spec's §7 has been updated to match. Original plan had de-trending at 0022.
+
+0. **De-GDS cleanup (app work, no migration):** ✅ **DONE** — `@gds.org` auth check removed, GDS copy
+   stripped, package renamed, seed script de-branded, palette recolored to black/white/purple.
+1. **0022** — ✅ **APPLIED** de-brand: rewrite the 7 GDS-titled seeded markets in place (UPDATE, not
+   DELETE, to preserve attached positions/comments/history).
+2. **0023** — de-trending: drop the `trending` category enum value (reassign existing rows first via
+   the 3-step enum swap). Note: also delete the `trending` key from `getCategoryColors()` in
+   `src/lib/utils.ts`, and the `/dashboard/trending` route.
+3. **0024** — `circles` + `circle_members` tables (+ member-count trigger, RLS).
+4. **0025** — market tier columns (`visibility_tier`, `league_id`, `circle_id`) + scope constraint, all defaulting to `public`.
+5. **0026** — tier-aware RLS: the `can_view_market()` helper + rewritten SELECT policies on all market-joined tables. **The critical migration — ships only when the full positive AND negative RLS matrix is green.**
+6. **0027** — league gating (`tournament_enabled`, nullable `buy_in_coins`) + `leagues.circle_id`.
+7. **0028** — model (b) scoring: reshape `league_bets`, rewrite the two tournament scoring functions.
+8. **0029** — scoped creation (`create_league_market` RPC) + circle suggestion→approval flow + scoped incident reports.
+9. **0030** — comment threading (`parent_comment_id`) + `comment_reactions`.
+10. **0031** — activity-feed tier scoping + new notification types.
+11. **0032** — profiles (`bio`), public profile pages, profile edit.
+12. **Then** the §11 navigation + presentation overhaul (tier-first nav, comment-section UI, Stat Leaders).
 
 ## What already exists (Phase 0 — extend, don't rebuild)
 Working CPMM with American-odds payouts, probability-history charts, over/under markets, RLS throughout with `SECURITY DEFINER` RPCs for state changes, community resolution via incident reports + voting, Realtime comments with @mentions, streak triggers, a weekly tournament system, magic-link auth (currently `@gds.org`-gated), and an admin dashboard with suggestion approval + line-setting. The refactor extends this; it does not replace it.

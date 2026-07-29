@@ -32,4 +32,5 @@ CLI ledger from the real schema, which is what required the 2026-07-29 repair ab
 
 | # | Date | Environment | Verified by |
 |---|---|---|---|
-| _next: 0022 (de-trending — drop the `trending` category enum value)_ | | | |
+| 0022_debrand_market_content | 2026-07-29 | prod (`curtlcoxtnoxljzkrlms`) | `db push` after a clean `--dry-run` showing 0022 as the only queued migration. Post-apply: PostgREST GDS probe returned `count: 0` (was 7); `positions` count unchanged at 20, so no bet history cascaded away; `migration list` shows 22 matched local/remote pairs. |
+| _next: 0023 (de-trending — drop the `trending` category enum value)_ | | | |
