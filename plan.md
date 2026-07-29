@@ -1,543 +1,441 @@
-# Forecast — Tier Refactor Execution Plan
+# Forecast — Tier Refactor Plan
 
-## Context
-
-Forecast is a play-money prediction market for teenagers, mid-pivot from a single-school app
-("GDS Forecast") into a national product organized around a **three-tier visibility model**
-(Public / Circle / League). The data-model spec (`docs/forecast-data-model-spec.md`) defines the
-target schema; migrations `0001–0022` are applied and `0023` (de-trending) is next in sequence.
-
-**The headline finding: the next step is not 0023.**
-
-Every migration from here is gated on a verification harness that spec §10 treats as mandatory and
-that **does not exist**. The repo has exactly two test files (`src/__tests__/utils.test.ts`,
-`src/__tests__/market-logic.test.ts`) — both pure unit tests of math helpers. There is no
-authenticated-client RLS harness, no test-user matrix, and no betting-loop regression script.
-
-That gap matters because of what's coming. Migration **0026 (tier-aware RLS)** is the one that, if
-wrong, leaks private league and circle markets between teenagers — and per spec §10.1 it fails
-**silently**: no exception, no build error, no type error. A too-permissive policy looks identical
-to a correct one until someone screenshots a market they were never meant to see. The only way to
-catch it is to run queries as different authenticated users and assert both what they *can* and
-*cannot* read. Writing that harness after 0026 defeats its purpose.
-
-**What unblocks this now:** CLAUDE.md states "Docker is not installed," and that note is stale —
-Docker Desktop 4.84.0 is installed with the daemon running (`docker version` reports
-`Server: Docker Desktop 4.84.0`, engine 29.6.2). That makes `supabase start` viable, which restores
-the fast local rung of the spec's testing ladder. The entire verification strategy has been shaped
-around a constraint that no longer applies.
-
-So the plan is: **build the harness first (Phase A), rehearse the full protocol on the cheap
-migration (0023, Phase B), then drive the tier migrations through it** — with the RLS tests written
-red *before* 0026's policies exist.
-
-### Decisions taken (from planning Q&A)
-
-- **Ladder:** local (`supabase start`) → prod for now; prod holds only disposable seeded test data.
-  A separate staging project becomes a hard gate before real users arrive (end of Phase D).
-- **`/dashboard/trending` route stays.** 0023 drops only the enum value. The route is the home feed
-  and does not filter by category; renaming it is spec §11 nav work.
-- **The "Hot Streak" / "Cold Streak" Stat Leader cards must be preserved.** They read
-  `profiles.win_streak` / `loss_streak` and are unrelated to the `trending` enum — 0023 does not
-  touch that page, and Chunk B2 verifies they still render.
-- **Plan covers the full arc** (0023 → 0032 → nav), fully chunked end to end: every phase is broken
-  into 30–60 minute units with its own done-criteria. Later chunks (E onward) will still want
-  refinement once the tier surface is real, but each is sized and scoped.
-
-### Live state verified against prod (`curtlcoxtnoxljzkrlms`)
-
-| | |
-|---|---|
-| Markets | 11 total — 6 `actions`, 2 `sports`, 2 `social`, **1 `trending`** |
-| Suggestions | 11 total — **1 `trending`** |
-| Positions | 20 · Profiles 10 · Leagues 8 · Comments 4 |
-| Migration ledger | 22 matched local/remote pairs |
-
-The de-trending data migration touches exactly **two rows**. It is a genuinely cheap dress rehearsal.
+28 steps, in order. Each is one thing that changes, sized 30–60 min per part.
+Migrations 0023 → 0032, then the navigation overhaul.
 
 ---
 
-## Findings to fix along the way
+## Why this order
 
-These are real defects in the project's own docs and conventions, found while reading. Each is
-folded into a chunk rather than filed as a suggestion.
+Forecast is adding a **three-tier visibility model** (Public / Circle / League). The spec is
+`docs/forecast-data-model-spec.md`; migrations 0001–0022 are applied.
 
-1. **CLAUDE.md: "Docker is not installed" is false.** It has been steering the project away from
-   local testing. → Chunk 0.
-2. **Spec §10.7 per-migration blocks are numbered off-by-one.** §7 was renumbered +1 on 2026-07-29
-   when 0022 was consumed by the de-brand, but §10.7's headers were not. The block labeled
-   "0022 — De-trending" is 0023's verification; "0025 — Tier-aware RLS (the critical one)" is
-   actually 0026. Following §10.7 by its headers applies the wrong test block to every migration.
-   → Chunk 0.
-3. **CLAUDE.md's "0023 also deletes the `/dashboard/trending` route" is wrong.** That route is the
-   post-login home feed — `proxy.ts:58,66`, `app/page.tsx:12`, `api/auth/callback/route.ts:12,16`,
-   `(auth)/login/page.tsx:16`, `(auth)/onboarding/page.tsx:11`, `OnboardingForm.tsx:70`,
-   `lib/auth.ts:37`, `Sidebar.tsx:25,70`, `BottomTabBar.tsx:9` all target it, and the page never
-   filters on `category`. Deleting it in 0023 breaks auth routing for zero benefit. → Chunk 0
-   (correct the note); the rename lands in Phase H.
-4. **`src/types/database.ts` is hand-written, not generated.** Its header says "Manual TypeScript
-   types matching the Supabase schema." It exports app-shaped types (`MarketCategory`, `Profile`,
-   `Market`, …) that every import depends on. CLAUDE.md and spec §10.5 both instruct
-   `npx supabase gen types typescript` after each migration — which emits a completely different
-   `Database` interface shape and would break the app wholesale. → Chunk 0 corrects the convention
-   to *hand-update*, with generated output written to a separate file as a cross-check only.
-5. **Six dev/test leagues remain in prod** — "Test 1"–"Test 4", a duplicate "Forecasters", and
-   "Fantasy leauge" (sic). Spec §7 lists deleting these as outstanding De-GDS cleanup. → Chunk B3.
-6. **The "Edit profile" button is a dead link.**
-   `src/app/(app)/profile/[username]/page.tsx:111` links to `/profile/[username]/edit`, which has no
-   route — the directory holds only `page.tsx` and `loading.tsx`. It renders whenever `isOwnProfile`,
-   so every user gets a 404 button on their own profile. Violates the repo's "never ship a button
-   that does nothing" rule. → Chunk G6, alongside the `bio` column that the edit form needs anyway.
+**Step 1–6 come before any migration** because the test harness spec §10 requires does not exist.
+The repo has two test files, both pure math unit tests. No authenticated-client RLS harness, no
+test-user matrix, no betting-loop regression.
+
+That matters at **step 10 (migration 0026)**, which rewrites the market read policy from
+`USING (auth.role() = 'authenticated')` — every logged-in user reads every market — into tier-scoped
+visibility. Get it wrong and private league markets leak between teenagers, and per spec §10.1 it
+fails **silently**: no exception, no build error, no type error. The only way to catch it is querying
+as different authenticated users and asserting what each one *cannot* see. Writing those tests after
+the migration defeats their purpose.
+
+**What makes this affordable now:** CLAUDE.md said "Docker is not installed." That was wrong —
+Docker Desktop 4.84.0 is installed with a running daemon, so `supabase start` works. The project had
+been avoiding local testing over a constraint that didn't exist.
+
+**Ladder:** local → prod for now (prod holds only seeded test data). A separate staging project
+becomes a hard gate at step 10, before real users.
 
 ---
 
-## Phase A — Verification foundation
+## Findings folded into the steps
 
-*The actual next step. Nothing here changes the schema; it builds the thing that makes every later
-schema change safe.*
+Six things found while reading that are wrong in the repo today. Each is fixed in a step, not filed.
 
-### Chunk A1 — Stand up local Supabase (45 min)
+| # | What's wrong | Fixed in |
+|---|---|---|
+| 1 | CLAUDE.md claims Docker isn't installed — it is (Desktop 4.84.0, daemon up) | Step 1 |
+| 2 | Spec §10.7 verification blocks numbered one behind §7; following them tests each migration with the wrong checklist | Step 1 |
+| 3 | CLAUDE.md says 0023 deletes `/dashboard/trending` — that's the home feed, 9 files redirect to it, and it never filters by category | Step 1 |
+| 4 | CLAUDE.md + spec §10.5 say to regenerate `src/types/database.ts` — it's hand-written, and `gen types` would break every import | Step 1 |
+| 5 | Six dev/test leagues still in prod ("Test 1"–"Test 4", duplicate "Forecasters", "Fantasy leauge") | Step 7c |
+| 6 | "Edit profile" button links to `/profile/[username]/edit`, which has no route — every user has a 404 button on their own profile | Step 19 |
 
-- `npx supabase init` from the repo root — creates the missing `supabase/config.toml`
-  (it has never existed; the project is linked via `supabase/.temp/linked-project.json`).
-- `npx supabase start`. First run pulls images; expect it to be the slow one.
-- Record the local API URL, anon key, and service-role key it prints.
-- Add `.env.test.local` (gitignored) holding the **local** keys. RLS tests must never point at prod.
-- Confirm `supabase/config.toml` didn't clobber the existing link; `npx supabase migration list`
-  should still show the 22 remote pairs.
+---
 
-**Done when:** `supabase status` reports all services running and Studio loads at `localhost:54323`.
+## Prod state (verified)
 
-### Chunk A2 — Prove the migration history replays clean (45 min)
+11 markets (6 actions, 2 sports, 2 social, **1 trending**) · 11 suggestions (**1 trending**) ·
+20 positions · 10 profiles · 8 leagues · 4 comments · ledger shows 22 matched migration pairs.
 
-- `npx supabase db reset` — replays `0001`→`0022` against the fresh local DB.
-- This is the first time the full history has ever run start-to-finish (0001–0021 were originally
-  hand-applied via the dashboard SQL editor). **Expect breakage** and budget for it: ordering
-  issues, statements that assumed prior manual state, or the `0005_seed.sql` admin-user dependency.
-- Fix by *adding* a corrective migration, never by editing an applied file (spec §10.9 — prod and
-  local history must stay identical).
+De-trending touches **two rows** — which is why it goes first among migrations, as a cheap rehearsal
+of the full verification protocol.
 
-**Done when:** `db reset` completes clean and local schema matches prod's shape.
+---
 
-### Chunk A3 — Seed the seven-user test matrix (60 min)
+# Part I — Test harness (steps 1–6)
 
-New file `supabase/seed-test-users.ts`, modeled on the env-loading and service-client setup already
-in `supabase/seed.ts` (lines 17–49).
+*No schema changes. This builds the thing that makes every later change safe.*
 
-Auth is magic-link, so these users have no passwords — create them with
+## 1. Doc corrections (30 min) — ✅ DONE
+
+Findings 1–4 above, corrected in `CLAUDE.md` and `docs/forecast-data-model-spec.md`, each marked so
+the next reader knows the old guidance was wrong rather than merely stale. Spec §10.7 headers and all
+cross-references (§8 decisions, §10.8 gotchas, in-block forward refs) renumbered to match §7.
+
+## 2. Local Supabase stack (45 min)
+
+`npx supabase init` — creates the missing `supabase/config.toml`; the project is linked via
+`supabase/.temp/linked-project.json` but was never `init`-ed. Then `npx supabase start` (first run
+pulls images). Put the local keys in a gitignored `.env.test.local`.
+
+**Done when:** `supabase status` shows all services up, Studio loads at `localhost:54323`, and
+`migration list` still shows the 22 remote pairs.
+
+## 3. Migration history replay (45 min)
+
+`npx supabase db reset` replays 0001 → 0022 against a fresh local DB.
+
+This is the **first time the full history has ever run start to finish** — 0001–0021 were originally
+hand-applied through the dashboard SQL editor, one at a time, against a database that already had
+state. Expect breakage: ordering issues, statements assuming prior manual state, or the
+`0005_seed.sql` dependency on an existing admin auth user. Budget past the 45 min.
+
+Fix by **adding a corrective migration**, never by editing an applied file — local and prod history
+must stay identical (spec §10.9).
+
+## 4. Seven-user test matrix (60 min)
+
+New `supabase/seed-test-users.ts`, reusing the env-loading and service-client setup in
+`supabase/seed.ts` (lines 17–49).
+
+Auth is magic-link so these users have no passwords — create them with
 `admin.auth.admin.createUser({ email, password, email_confirm: true })` so the harness can call
-`signInWithPassword`. Per spec §10.3:
+`signInWithPassword`.
 
-| User | League A | League B | Circle X | Circle Y | Tests |
+| User | League A | League B | Circle X | Circle Y | Exists to prove |
 |---|---|---|---|---|---|
-| Alice | member | — | member | — | sees public + League A + Circle X |
-| Bob | member | — | — | — | same league, **not** her circle |
-| Carol | — | — | member | — | same circle, **not** her league |
-| Dave | — | member | — | member | total isolation |
-| Erin | — | — | — | — | public-only floor |
-| Mod | — | — | moderator | — | approves Circle X suggestions |
-| Admin | — | — | — | — | platform admin |
+| Alice | ✓ | | ✓ | | sees public + League A + Circle X |
+| Bob | ✓ | | | | same league as Alice, **not** her circle |
+| Carol | | | ✓ | | same circle as Alice, **not** her league |
+| Dave | | ✓ | | ✓ | fully isolated from Alice |
+| Erin | | | | | public-only floor |
+| Mod | | | moderator | | approves Circle X suggestions |
+| Admin | | | | | platform admin |
 
-Circle membership rows are inserted in Chunk C1 once `circles` exists; seed users + leagues now,
-guarded so re-running is idempotent.
+Circle rows land in step 8 once `circles` exists. Seed users + leagues now, idempotently.
 
-**Done when:** the script runs twice with no error and all seven appear in local `auth.users` with
-correct league membership.
+**Done when:** runs twice with no error; all seven in local `auth.users` with correct membership.
 
-### Chunk A4 — RLS harness scaffold (60 min)
+## 5. RLS test harness (60 min)
 
-New `src/__tests__/rls/helpers.ts` implementing spec §10.4:
+New `src/__tests__/rls/helpers.ts`, per spec §10.4 — one authenticated client per user, plus a
+service-role client for setup/teardown only.
 
-```ts
-const admin = createClient(URL, SERVICE_ROLE_KEY);   // setup/teardown ONLY — bypasses RLS
-async function clientFor(email: string, password: string) { … }  // anon key + real session
-```
+Two guardrails that decide whether the suite is trustworthy:
 
-Guardrails worth building in now, because they are what makes the suite trustworthy:
-- **Fail loudly if the target URL is not localhost** — a suite pointed at prod that "passes" proves
-  nothing and creates password users in prod.
-- A `expectCannotRead(client, table, id)` helper asserting `error === null && data.length === 0`.
-  RLS *filters*, it does not throw — asserting on an error is the classic false-green.
+- **Refuse to run against a non-localhost URL.** A suite pointed at prod that "passes" proves nothing
+  and creates password users in production.
+- **`expectCannotRead(client, table, id)`** asserting `error === null && data.length === 0`. RLS
+  *filters*, it does not throw — asserting on an error is the classic false-green.
 
-Add a `test:rls` script to `package.json`. Vitest config already resolves `@` → `src` and runs in a
-node environment, so no config change is needed.
-
-Write one throwaway assertion (Erin can read a public market) to prove the harness authenticates.
+Add a `test:rls` npm script. Vitest already aliases `@` → `src` and runs in node, so no config change.
 
 **Done when:** `npm run test:rls` signs in as a seeded user and passes a real assertion.
 
-### Chunk A5 — Betting-loop regression script (60 min)
+## 6. Betting-loop regression (60 min)
 
-`src/__tests__/rls/betting-loop.test.ts`, automating spec §10.6. This runs after **every** migration
-from here on; it is the tripwire for "the migration broke the core product."
+`src/__tests__/rls/betting-loop.test.ts`, automating spec §10.6. Runs after **every** migration from
+here on — the tripwire for "this migration broke the product."
 
 1. Claim daily bonus → balance rises, `last_daily_claim` set, second same-day claim rejected.
-2. `place_bet` → `positions` row created, pools shift, `yes_probability` recomputes via trigger,
-   `market_probability_history` appended, coins decrease, `yes_odds_at_bet` locked.
-3. Resolve → winners `status='won'` + `payout`, losers `'lost'`, coins credited, streak trigger
-   fires, `market_resolved` + `payout_received` notifications created.
+2. Place bet → position created, pools shift, probability recomputes via trigger, history row
+   appended, coins decrease, `yes_odds_at_bet` locked.
+3. Resolve → winners `won` + payout, losers `lost`, coins credited, streak trigger fires,
+   `market_resolved` + `payout_received` notifications created.
 4. Leaderboard reflects balances; weekly-top-earner RPC returns the right user.
 
-**Done when:** the full loop is green locally — this is the baseline every later chunk re-runs.
+**Done when:** green locally. This is the baseline every later step re-runs.
 
 ---
 
-## Phase B — 0023 De-trending (the dress rehearsal)
+# Part II — Tier foundation (steps 7–10)
 
-*Deliberately first among migrations: two rows of real data, no tier logic, and it exercises the
-entire §10.5 protocol on a change where a mistake costs nothing.*
+## 7. Drop the `trending` category — 0023 (2h)
 
-### Chunk B1 — Write and locally verify 0023 (45 min)
+Trending is both an enum value and the name of the home tab; the collision causes subtle bugs in tier
+work. It becomes a *view*, not a category.
 
-`supabase/migrations/0023_detrending.sql`, following spec §3.2's three-step enum swap (Postgres
-cannot drop an enum value in place):
+**7a — Migration (45 min).** Postgres can't drop an enum value in place, so the three-step swap from
+spec §3.2: reassign the 2 rows to `actions`, create `market_category_new` without `trending`, swap
+both columns via `USING category::text::market_category_new`, drop the old type, rename. Only
+`0002_tables.sql` references the type, so the drop should succeed — if it doesn't, the error names
+what still points at it.
 
-1. `UPDATE markets SET category='actions' WHERE category='trending'` (1 row); same for
-   `market_suggestions` (1 row).
-2. `CREATE TYPE market_category_new AS ENUM ('sports','social','actions')`.
-3. Swap both columns via `USING category::text::market_category_new`, drop the old type, rename.
+**7b — App cleanup (45 min).** Delete the `trending` key from `getCategoryLabel()` and
+`getCategoryColors()` in `src/lib/utils.ts`; remove the Trending pill from
+`AdminCreateMarket.tsx:15`; narrow `MarketCategory` in `src/types/database.ts:6` **by hand**
+(Finding 4 — never `gen types` over that file). Both helpers are `Record<MarketCategory, …>`, so the
+compiler catches a miss.
 
-Only `0002_tables.sql` references `market_category` (lines 43, 62, 145) — no views or check
-constraints depend on it, so the `DROP TYPE` should succeed. If it doesn't, the failure names what
-still points at the old type (spec §10.8).
+*Explicitly unchanged:* `/dashboard/trending` and its 9 redirect sites, the four algorithmic
+sections, and the **Hot Streak / Cold Streak** cards — they read `profiles.win_streak` /
+`loss_streak`, never `category`. The route rename is step 22.
 
-Keep the repo's `IF NOT EXISTS` / `DROP … IF EXISTS` idempotency guards. Document the rollback in a
-header comment — the enum swap is not cleanly reversible once the old type is dropped.
+**7c — Ship + cleanup (30 min).** `db push --dry-run` → `db push`. Re-probe: trending count 0,
+markets still 11, positions still 20. Delete the six dev/test leagues (Finding 5), checking for
+attached members/bets/chat first — destructive prod write. Log in `MIGRATIONS_LOG.md`, commit.
 
-Verify per §10.7's de-trending block (the one mislabeled "0022"): enum is exactly three values, zero
-`trending` rows remain, market count 11 before == 11 after, and inserting `category='trending'` now
-errors.
+## 8. Circles and circle members — 0024 (105 min)
 
-**Done when:** applies clean on `db reset`, verification queries pass, betting loop still green.
+**8a — Tables + RLS (60 min).** Per spec §2.1–2.2: `circles`, `circle_members`, the `member_count`
+sync trigger, slug uniqueness, and their RLS policies — **shipped together**, never a table without
+its policy. Extend step 4's seed script to create Circle X / Circle Y and place Alice, Carol, Mod,
+Dave.
 
-### Chunk B2 — App-side de-trending (45 min)
+**8b — Verification (45 min).** Member-count trigger increments and decrements; a member reads their
+own circle; **a user cannot insert a `circle_members` row for someone else**; duplicate slug
+rejected; circle delete cascades with no orphans; creator gets `role='creator'`. Betting loop green.
 
-Genuinely small, because `trending` is overwhelmingly a *route* name in this codebase:
+## 9. Market tier columns — 0025 (90 min)
 
-- `src/lib/utils.ts` — delete the `trending` key from `getCategoryLabel` (line 69) and from
-  `getCategoryColors` (lines 86–87, which already carry a comment naming 0023 as the trigger).
-  Both are `Record<MarketCategory, …>`, so the compiler flags any miss.
-- `src/app/(admin)/admin/AdminCreateMarket.tsx:15` — remove the `{ value: "trending" }` pill.
-  `is_featured` is the correct mechanism for surfacing a market (spec §3.2).
-- `src/types/database.ts:6` — hand-edit `MarketCategory` to
-  `"sports" | "social" | "actions"`. **Do not run `gen types`** (Finding 4).
+**9a — Columns + constraint (45 min).** Per spec §3.1: `visibility_tier`, `league_id`, `circle_id` on
+`markets`, all defaulting to public, plus the scope CHECK.
 
-**Explicitly unchanged:** `/dashboard/trending` and every redirect to it; the four algorithmic
-sections; and the **Hot Streak / Cold Streak** Stat Leader cards, which read `profiles.win_streak` /
-`loss_streak` and never touch `category`.
+RLS is deliberately **not** touched here — every market stays globally readable until step 10. That
+ordering is intentional; don't pull the policy forward.
 
-Then `npm run type-check` && `npm run lint` && `npm run build`, and load the page to confirm Hot
-Streak still renders.
+**9b — Verification (45 min).** Every existing market is `public`/NULL/NULL. The constraint must
+reject: a public market with either scope id set; a league market with null `league_id`; a circle
+market with null `circle_id`; and **any** market with both ids. Verify cascades — deleting a league
+removes its league-tier markets and their positions/comments, and reaches **no** public rows.
 
-### Chunk B3 — Ship 0023 to prod + drive-by cleanup (30 min)
+## 10. Tier-aware RLS — 0026 (4h) ⚠️ the critical one
 
-- `npx supabase db push --dry-run` — confirm 0023 is the only queued migration.
-- `npx supabase db push`.
-- Re-probe PostgREST: `trending` count 0, markets count still 11, positions still 20.
-- Delete the six dev/test leagues (Finding 5) — check for attached `league_members` /
-  `league_bets` / chat rows first, since this is a destructive prod write.
-- Log 0023 in `MIGRATIONS_LOG.md` per the existing table format.
-- Commit + push to `main` (`feat(db): 0023 drop the trending category enum value`).
+The migration that leaks data if it's wrong. Tests are written **red, before the policies exist**.
 
----
+**10a — Write the matrix red (60 min).** `src/__tests__/rls/tier-visibility.test.ts`. Seed one market
+per tier, then assert the full matrix while `can_view_market()` still doesn't exist — the failure is
+proof the tests are wired to reality.
 
-## Phase C — Circles and tier columns
-
-### Chunk C1 — 0024 circles tables (60 min)
-Per spec §2.1–2.2: `circles` + `circle_members`, the `member_count` trigger, slug uniqueness, and
-their RLS policies — **shipped together**, never a table without its policy. Extend
-`seed-test-users.ts` (A3) to create Circle X / Circle Y and place Alice, Carol, Mod, Dave.
-
-### Chunk C2 — 0024 verification (45 min)
-Per §10.7's circles block: member-count trigger increments/decrements; a member reads their own
-circle; **a user cannot insert a `circle_members` row for another user**; duplicate slug rejected;
-circle delete cascades with no orphans; creator gets `role='creator'`. Betting loop green.
-
-### Chunk C3 — 0025 market tier columns (45 min)
-Per §3.1: `visibility_tier`, `league_id`, `circle_id` on `markets`, all defaulting to `public`, plus
-the scope CHECK constraint. RLS is deliberately **not** changed here — all markets stay globally
-readable until 0026. That ordering is intentional; don't "helpfully" pull the policy forward.
-
-### Chunk C4 — 0025 verification (45 min)
-Every pre-existing market is `public`/NULL/NULL. The constraint must reject: a `public` market with
-a non-null `league_id` or `circle_id`; a `league` market with null `league_id`; a `circle` market
-with null `circle_id`; and **any** market with both ids set. Verify cascades: deleting a league
-deletes its league-tier markets and their positions/comments, and reaches **no** public rows.
-
----
-
-## Phase D — 0026 Tier-aware RLS (the critical migration)
-
-*The one that leaks data if wrong. Tests are written **before** the policies, red first.*
-
-### Chunk D1 — Write the RLS matrix RED (60 min)
-`src/__tests__/rls/tier-visibility.test.ts`. Seed one market per tier (public, League A, League B,
-Circle X, Circle Y), then assert the full §10.7 matrix — **before `can_view_market` exists**, so
-these fail. That failure is the proof the tests are actually wired to reality.
-
-Positive: Alice → public + League A + Circle X · Bob → public + League A · Carol → public + Circle X
+*Positive:* Alice → public + League A + Circle X · Bob → public + League A · Carol → public + Circle X
 · Dave → public + League B + Circle Y · Erin → public only.
 
-Negative (the point): Bob cannot read any Circle X market; Carol cannot read any League A market;
-Dave cannot read either of Alice's; Erin cannot read anything tier-scoped. Each negative uses the
-**direct-by-ID** read from §10.4 — hiding a row from a list is not enough; it must be unreadable
-when the user knows its exact UUID.
+*Negative:* Bob reads no Circle X market · Carol reads no League A market · Dave reads neither of
+Alice's · Erin reads nothing tier-scoped. **Each negative is a direct-by-ID read** — hiding a row from
+a list is not enough; it must be unreadable when the user knows its exact UUID.
 
-### Chunk D2 — Ship 0026 policies GREEN (60 min)
-Per spec §4: the `can_view_market(p_market_id)` helper (`SQL STABLE SECURITY DEFINER
-SET search_path = public`), then replace `markets_select_authenticated` — currently
-`USING (auth.role() = 'authenticated')` at `0003_rls.sql:34-37`, i.e. every authenticated user reads
-every market — with `USING (can_view_market(id))`. Iterate until D1 is fully green.
+**10b — Ship the policies green (60 min).** Per spec §4: the `can_view_market(p_market_id)` helper
+(`SQL STABLE SECURITY DEFINER SET search_path = public`), then replace
+`markets_select_authenticated` (`0003_rls.sql:34-37`) with `USING (can_view_market(id))`. Iterate
+until 10a is fully green.
 
-### Chunk D3 — Dependent-table cascade (60 min)
-Repeat the entire positive+negative matrix across `positions`, `market_comments`,
-`market_reactions`, `market_probability_history`, and `activity_feed` (the last as
-`market_id IS NULL OR can_view_market(market_id)`). Bob must not read a comment, position,
-price-history point, or feed entry belonging to a Circle X market — including by direct id. Plus the
-helper assertions: `can_view_market()` returns the correct boolean for all five users × forbidden
-markets. **This migration does not ship on a single red negative test.**
+**10c — Dependent tables (60 min).** Repeat the whole matrix across `positions`, `market_comments`,
+`market_reactions`, `market_probability_history`, and `activity_feed` (that last as
+`market_id IS NULL OR can_view_market(market_id)`). Bob must not read a comment, position, price
+point, or feed entry belonging to a Circle X market — including by direct id. Plus: the helper
+returns the correct boolean for all five users × every forbidden market.
 
-### Chunk D4 — Performance, ship, and stand up staging (60 min)
-`EXPLAIN` the market-list and feed queries under a normal user; confirm the per-row helper call
-isn't producing a pathological plan (spec §4 flags a join-based rewrite for later scale).
-Ship to prod, log, commit.
+**10d — Perf, ship, staging (60 min).** `EXPLAIN` the market-list and feed queries under a normal
+user; the helper runs per row, so confirm no pathological plan (spec §4 flags a join-based rewrite
+for larger scale). Ship, log, commit.
 
-**Then create the staging Supabase project** — a free-tier project loaded from a prod snapshot.
-This is the agreed gate: from 0027 onward, and certainly before real users, migrations climb
-local → staging → prod. Creating the project needs dashboard access, so it's yours to click through;
-wiring the snapshot/restore and pointing the suite at it is scriptable.
+**Then create the staging Supabase project** — free tier, loaded from a prod snapshot. From step 11
+on, migrations climb local → staging → prod. Creating it needs dashboard clicks, so that part is
+yours; wiring the restore and pointing the suite at it is scriptable.
+
+> **Gate:** this migration ships only when the entire positive **and** negative matrix is green
+> across all six tables. One red negative test blocks it.
 
 ---
 
-## Phase E — Leagues and tournament scoring (0027, 0028)
+# Part III — Leagues and scoring (steps 11–12)
 
-*Everything here runs local → staging → prod, since staging exists from D4 onward.*
+## 11. League tournament gating — 0027 (90 min)
 
-### Chunk E1 — 0027 league gating migration (45 min)
-Per §3.3: `leagues.tournament_enabled BOOLEAN NOT NULL DEFAULT FALSE`, `leagues.circle_id` (nullable
-FK, `ON DELETE SET NULL`), and `buy_in_coins` dropped to nullable with a `NULL` default. Every one of
-the existing leagues becomes a plain private space — chat, markets, coin-balance leaderboard — with
-its `buy_in_coins` value retained but dormant.
+**11a — Migration (45 min).** Per spec §3.3: `tournament_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+`leagues.circle_id` (nullable, `ON DELETE SET NULL`), and `buy_in_coins` dropped to nullable. Every
+existing league becomes a plain private space — chat, markets, coin leaderboard — with its buy-in
+retained but dormant.
 
-**Done when:** applies clean, existing leagues keep their buy-in values, new leagues default to
-tournament-off.
+**11b — Verification + owner toggle (45 min).** With the flag off the weekly machinery is a no-op;
+**a non-owner cannot flip it** (an RPC/RLS check, not just UI); nullable buy-in accepted; league chat,
+standings, membership and invite codes all still work. Wire the settings toggle to the owner check.
 
-### Chunk E2 — 0027 verification + owner-only flag (45 min)
-Per §10.7's league-gating block: with the flag off the weekly machinery is a no-op (week-start never
-runs); a **non-owner cannot flip `tournament_enabled`** — that's an RLS/RPC check, not just UI;
-nullable `buy_in_coins` is accepted; league chat, standings, membership and invite codes all still
-work. Add a league-settings toggle wired to the owner check. Betting loop green.
+## 12. Model (b) tournament scoring — 0028 (3.5h)
 
-### Chunk E3 — 0028 reshape `league_bets` (45 min)
-Per §3.5: drop the existing PK, drop `week_id` (the week is derived from `markets.resolved_at` at
-scoring time), re-key to `PRIMARY KEY (position_id, league_id)` — Decision #1, so one public bet may
-count in several leagues independently. **Back up the table's contents first**; this is the one
+A bet counts for a league if the market is league-exclusive to it (**automatic**) or the user tagged
+a public/circle bet into it (**manual**). Circle markets never auto-count, even inside that circle
+(Decision #7).
+
+**12a — Reshape `league_bets` (45 min).** Per spec §3.5: drop the PK, drop `week_id` (the week is
+derived from `markets.resolved_at` at scoring time), re-key to `(position_id, league_id)` so one
+public bet can count in several leagues (Decision #1). **Back up the table first** — this is the one
 migration in the sequence that discards a column with live meaning.
 
-**Done when:** the table means exactly "this public/circle position was opted into this league."
-
-### Chunk E4 — 0028 rewrite the two scoring functions (60 min)
-Replace the gross-payout clause in `get_live_week_scores()` and `close_league_week()` (both from
-`0017_league_system.sql`, patched in `0018`) with the model-(b) union from §3.5:
+**12b — Rewrite the two scoring functions (60 min).** Replace the gross-payout clause in
+`get_live_week_scores()` and `close_league_week()` (from `0017`, patched in `0018`) with the union:
 
 ```sql
-AND ( mkt.league_id = L                                     -- league-exclusive: automatic
-   OR pos.id IN (SELECT position_id FROM league_bets WHERE league_id = L) )  -- opted-in
+AND ( mkt.league_id = L                                                      -- automatic
+   OR pos.id IN (SELECT position_id FROM league_bets WHERE league_id = L) )  -- opted in
 ```
 
-Everything else in those functions — buy-in collection, golf `RANK()`, pool payout, carry-over — is
-untouched. Only "what counts" changes. Circle markets deliberately do **not** auto-count for leagues
-inside that circle (Decision #7).
+Buy-in collection, golf `RANK()`, pool payout and carry-over are untouched. Only "what counts"
+changes.
 
-### Chunk E5 — 0028 tagging RPC + guards (45 min)
-The manual opt-in path, as a `SECURITY DEFINER` RPC matching `place_bet`. Two logic checks that
-cannot be table constraints (§3.5): a user may only tag a league they **belong to**, and a
+**12c — Tagging RPC (45 min).** The manual opt-in path, `SECURITY DEFINER`, matching `place_bet`. Two
+checks that can't be table constraints: a user may only tag a league they **belong to**, and a
 league-exclusive position may **never** be tagged to a different league.
 
-### Chunk E6 — 0028 full tournament cycle regression (60 min)
-Per §10.7: on a flag-enabled league, run start week → collect buy-ins → place a mix of
-league-exclusive and tagged-public bets → resolve → close week. Verify pool payout, golf points,
-`RANK()` ties, the pool-rounding remainder, carry-over when nobody wins, and the `league_win`
-notification. **Must-fail:** a League A-exclusive market scores nothing for League B; an *untagged*
-public bet scores for no league; a market resolving outside any active week simply doesn't score
-(no crash).
+**12d — Full cycle regression (60 min).** On a flag-enabled league: start week → buy-ins → mixed
+exclusive and tagged bets → resolve → close. Verify pool payout, golf points, `RANK()` ties, the
+rounding remainder, carry-over when nobody wins, and the `league_win` notification.
+*Must fail:* a League A-exclusive market scores nothing for League B; an untagged public bet scores
+for no league; a market resolving outside any week simply doesn't score.
 
 ---
 
-## Phase F — Scoped creation (0029)
+# Part IV — Creation paths (steps 13–15) · migration 0029
 
-### Chunk F1 — `create_league_market` RPC (60 min)
-The **one** direct member-create path in the whole product. `SECURITY DEFINER`, matching the
-`place_bet` pattern: verify the caller is a member of the target league, then insert a `league`-tier
-market with `league_id` set. The `markets` insert policy stays `service_role`-only and the RPC does
-the authorization (§4). Non-members rejected.
+## 13. League market direct-create (105 min)
 
-### Chunk F2 — League create UI (45 min)
-Wire the RPC to a create form inside the league feed. Reuse the field shapes from
-`src/app/(app)/suggest/page.tsx` (112 lines) rather than authoring a second market form — same
-title/description/category/line inputs, different submit target and no approval step.
+**13a — `create_league_market` RPC (60 min).** The **only** direct member-create path in the product.
+`SECURITY DEFINER`, matching `place_bet`: verify the caller is a member of the target league, then
+insert a league-tier market. The table policy stays service-role-only and the RPC does the
+authorization (spec §4). Non-members rejected.
 
-### Chunk F3 — 0029 circle suggestion schema (45 min)
-Per §3.7: `market_suggestions.target_tier TEXT NOT NULL DEFAULT 'public' CHECK (target_tier IN
-('public','circle'))` and `target_circle_id`. No `target_league_id` — leagues never suggest. Circles
-have **no** direct-create path, so a member inserting a circle-tier market directly must be rejected
+**13b — Create UI (45 min).** Wire it to a form inside the league feed, reusing the field shapes from
+`src/app/(app)/suggest/page.tsx` rather than authoring a second market form — same inputs, different
+submit target, no approval step.
+
+## 14. Circle suggestion → approval (105 min)
+
+**14a — Schema (45 min).** Per spec §3.7: `market_suggestions.target_tier` (CHECK `public`/`circle`)
+and `target_circle_id`. No `target_league_id` — leagues never suggest. Circles have **no**
+direct-create path, so a member inserting a circle-tier market directly must be rejected
 (locked Decision #4).
 
-### Chunk F4 — Moderator approval + line-setting (60 min)
-Extend the existing admin suggestion-approval flow (`src/app/(admin)/admin/actions.ts`) so a **circle
-moderator** — not just the platform admin — can approve suggestions scoped to their circle and set
-the opening line before it goes live. Approval is the elevated path that inserts the circle-tier
-market. Verify with the seeded **Mod** user; a non-moderator approving must be rejected.
+**14b — Moderator approval + line-setting (60 min).** Extend the existing admin approval flow in
+`src/app/(admin)/admin/actions.ts` so a **circle moderator** — not just the platform admin — can
+approve suggestions scoped to their circle and set the opening line before it goes live. Approval is
+the elevated path that inserts the market. Verify with the seeded Mod user; a non-moderator approving
+must be rejected.
 
-### Chunk F5 — 0029 scoped incident reports + scaled threshold (60 min)
-Per §3.8, two changes to `submit_incident_report` and `cast_incident_vote`: gate eligibility on
-`can_view_market()` so you can only report/vote on markets you can see, and scale the pass bar to
-audience size — `required_votes = GREATEST(2, LEAST(4, CEIL(eligible_voters * 0.5)))`, passing at
-≥60% agreement. That yields ~3 for a six-person league and 4 for a 200-person circle. **Public
-markets must still resolve at the existing 4 / 60% bar** — that's the regression to protect. A
-reporter still cannot vote on their own report.
+## 15. Scoped incident reports (60 min)
+
+Per spec §3.8, two changes to `submit_incident_report` and `cast_incident_vote`: gate eligibility on
+`can_view_market()` so you can only report or vote on markets you can see, and scale the pass bar to
+audience size — `GREATEST(2, LEAST(4, CEIL(eligible_voters * 0.5)))` at ≥60% agreement. That gives ~3
+for a six-person league, 4 for a 200-person circle.
+
+**Public markets must still resolve at the existing 4 / 60% bar** — that's the regression to protect.
+A reporter still can't vote on their own report.
 
 ---
 
-## Phase G — Social and profiles (0030, 0031, 0032)
+# Part V — Social and profiles (steps 16–19)
 
-### Chunk G1 — 0030 threading + comment reactions (45 min)
-Per §3.6 and §2.4: `market_comments.parent_comment_id` (self-FK, `ON DELETE CASCADE`) with the
-partial index `WHERE parent_comment_id IS NOT NULL`, plus the `comment_reactions` table keyed
-`(comment_id, user_id, emoji)`. Note the deliberate asymmetry — `comment_reactions` has **no** emoji
-CHECK constraint (unlike the existing `market_reactions`) so the palette can evolve without a
-migration; validate the allowed set in the app layer.
+## 16. Comment threading and reactions — 0030 (90 min)
 
-### Chunk G2 — 0030 RLS + verification (45 min)
-Both new surfaces inherit market visibility via `can_view_market()`. Verify: reply sets
-`parent_comment_id`; reacting twice toggles off; deleting a parent cascades to replies; **you cannot
+**16a — Migration (45 min).** Per spec §3.6 and §2.4: `market_comments.parent_comment_id` (self-FK,
+cascade) with a partial index, plus `comment_reactions` keyed `(comment_id, user_id, emoji)`. Note the
+deliberate asymmetry — no emoji CHECK constraint here, unlike `market_reactions`, so the palette can
+evolve without a migration; validate in the app layer.
+
+**16b — RLS + verification (45 min).** Both inherit market visibility. Reply sets
+`parent_comment_id`; reacting twice toggles off; deleting a parent cascades to replies; **you can't
 read or react to a comment on a market you can't see**, including by direct id. Confirm the existing
-Realtime subscription on `market_comments` still fires on insert.
+Realtime subscription still fires.
 
-### Chunk G3 — 0031 notification enum values, alone (45 min)
-Per the §10.8 gotcha, this is deliberately **its own migration ahead of any code that inserts these
-values**: `ALTER TYPE notification_type ADD VALUE IF NOT EXISTS` for `market_about_you`,
-`circle_joined`, `circle_invite`, `comment_reply`, and optionally `league_market_created` /
-`circle_market_created`. A newly added enum value cannot be used in the same transaction it's added
-in, and in some Postgres versions `ADD VALUE` can't run in a transaction block at all. Verify the
-values are actually usable *after* apply before writing anything that inserts them.
+## 17. Notification types — 0031a (45 min)
 
-### Chunk G4 — 0031 activity feed scope + insert-site audit (60 min)
-`activity_feed.circle_id` (§3.10), then **audit every `INSERT INTO public.activity_feed` call site**
-and confirm each carries the correct tier context. Spec §10.7 names this as where leaks hide — the
-read policy is only half the protection; an insert that drops tier context leaks regardless.
+Deliberately **its own migration, ahead of any code that inserts these values.**
+`ALTER TYPE notification_type ADD VALUE IF NOT EXISTS` for `market_about_you`, `circle_joined`,
+`circle_invite`, `comment_reply`, optionally `league_market_created` / `circle_market_created`.
 
-### Chunk G5 — 0031 feed leak tests (45 min)
-Run as **Erin** (public-only) and **Dave** (fully isolated): a League A-exclusive market action must
-not appear in the public feed or in a non-member's feed; a Circle X action must not leak to
-non-members. Public activity still shows for everyone; existing notifications still deliver.
+Per spec §10.8: a newly added enum value **cannot be used in the transaction that adds it**, and in
+some Postgres versions `ADD VALUE` can't run in a transaction block at all. Verify the values are
+usable *after* apply before writing anything that inserts them.
 
-### Chunk G6 — 0032 profiles + the dead Edit-profile link (60 min)
-`profiles.bio TEXT` (§3.11). Then fix a **live bug found during planning**:
-`src/app/(app)/profile/[username]/page.tsx:111` renders an "Edit profile" button linking to
-`/profile/[username]/edit`, and **that route does not exist** — only `page.tsx` and `loading.tsx` do.
-It renders whenever `isOwnProfile`, so every user has a 404 button on their own profile, violating
-the project's own "never ship a button that does nothing" rule. Build the edit route with a form
-covering display name, avatar and the new bio. Verify the existing `profiles_update_own` policy still
-blocks editing someone else's profile.
+## 18. Activity feed scoping — 0031b (105 min)
+
+**18a — Column + insert audit (60 min).** `activity_feed.circle_id` (spec §3.10), then **audit every
+`INSERT INTO public.activity_feed` call site** and confirm each carries tier context. Spec §10.7 names
+this as where leaks hide — the read policy is only half the protection; an insert that drops tier
+context leaks regardless.
+
+**18b — Leak tests (45 min).** As Erin (public-only) and Dave (isolated): a League A-exclusive market
+action must not appear in the public feed or a non-member's feed; a Circle X action must not leak.
+Public activity still shows for everyone; existing notifications still deliver.
+
+## 19. Profile bio and the missing edit route — 0032 (60 min)
+
+`profiles.bio TEXT` (spec §3.11), then fix Finding 6: `profile/[username]/page.tsx:111` renders an
+"Edit profile" button linking to `/profile/[username]/edit`, and **that route doesn't exist** — the
+directory holds only `page.tsx` and `loading.tsx`. It renders whenever `isOwnProfile`, so every user
+has a 404 button on their own profile, against the repo's own "never ship a button that does nothing"
+rule.
+
+Build the edit route with a form for display name, avatar and the new bio. Verify the existing
+`profiles_update_own` policy still blocks editing someone else's.
 
 ---
 
-## Phase H — Navigation and presentation (spec §11)
+# Part VI — Navigation overhaul (steps 20–28) · spec §11
 
-Only after the tier migrations are proven — the sidebar cannot list "your circles / your leagues as
-places" until circles exist and markets carry a tier. Governing flip: **place (tier) becomes primary
-navigation; category becomes a filter chip inside every feed.**
+Only after the tier migrations are proven — the sidebar can't list "your circles / your leagues as
+places" until circles exist and markets carry a tier.
 
-Home = **Option A** for alpha (public trending), evolving to the personalized blend later
-(§11.4) — the ranking logic for B isn't worth building before the tiers are validated.
+**The flip:** place (tier) becomes primary navigation; category becomes a filter chip inside every
+feed. Home = public trending for alpha (Option A), evolving to a personalized blend later — the
+ranking logic for B isn't worth building before the tiers are validated (§11.4).
 
-### Chunk H1 — Category filter-chip component (45 min)
-Build it first; every later feed chunk consumes it. A chip row (Sports / Social / Actions) that
-filters the feed it sits above. Colors come from `getCategoryColors()` in `src/lib/utils.ts`, not
-CSS tokens — per the repo's design-token rule.
+## 20. Category filter chips (45 min)
+Build first; every later feed consumes it. A Sports / Social / Actions chip row that filters the feed
+below it. Colors come from `getCategoryColors()` in `src/lib/utils.ts`, not CSS tokens.
 
-### Chunk H2 — Collapse the category routes into tier feeds (60 min)
-Retire `/dashboard/{sports,social,actions}` as routes; their content becomes the chip-filtered view
-of a single feed. Extract the shared feed body so Home, Explore, circle and league feeds all render
-the same component with a different market scope.
+## 21. Feed consolidation (60 min)
+Retire `/dashboard/{sports,social,actions}` as routes — their content becomes the chip-filtered view
+of one feed. Extract the shared feed body so Home, Explore, circle and league feeds all render the
+same component with a different market scope.
 
-### Chunk H3 — Home route + Stat Leaders module (60 min)
-Rename `/dashboard/trending` → the Home route and repoint all nine redirect sites (`proxy.ts:58,66`,
-`app/page.tsx:12`, `api/auth/callback/route.ts:12,16`, `(auth)/login/page.tsx:16`,
-`(auth)/onboarding/page.tsx:11`, `OnboardingForm.tsx:70`, `lib/auth.ts:37`, `Sidebar.tsx:25,70`,
-`BottomTabBar.tsx:9`). **Trending becomes the default sort, not a destination.** Preserve the four
-algorithmic sections and the **Hot Streak / Cold Streak** Stat Leader cards as a Home module — they
-read `profiles.win_streak` / `loss_streak` and must survive the move intact.
+## 22. Home route and Stat Leaders (60 min)
+Rename `/dashboard/trending` → Home and repoint all nine redirect sites (`proxy.ts:58,66`,
+`app/page.tsx:12`, `api/auth/callback/route.ts:12,16`, `login/page.tsx:16`, `onboarding/page.tsx:11`,
+`OnboardingForm.tsx:70`, `lib/auth.ts:37`, `Sidebar.tsx:25,70`, `BottomTabBar.tsx:9`).
 
-### Chunk H4 — Sidebar restructure, tier-first (60 min)
-`src/components/layout/Sidebar.tsx`: top = places (Home, Explore, each circle individually with its
-avatar, each league individually — Discord-rail style); bottom = utility (My Bets, Notifications,
-Reports, Create, Admin, profile card with coin balance).
+Trending becomes the default **sort**, not a destination. Preserve the four algorithmic sections and
+the **Hot Streak / Cold Streak** cards as a Home module — they must survive the move intact.
 
-### Chunk H5 — Mobile bottom tab bar (45 min)
-`src/components/layout/BottomTabBar.tsx` to the five slots from §11.2: **Home · Circles · Leagues ·
-Activity · More.** Circles and Leagues open list views (no room for a per-item rail on mobile);
-Activity folds in Notifications + My Bets + Stat Leaders; More holds Reports, Suggest, profile,
-settings, Admin.
+## 23. Sidebar, tier-first (60 min)
+`Sidebar.tsx`: top = places (Home, Explore, each circle individually with its avatar, each league
+individually — Discord-rail style). Bottom = utility (My Bets, Notifications, Reports, Create, Admin,
+profile card with coin balance).
 
-### Chunk H6 — Circle browse + detail screens (60 min)
-New surfaces: a circle list, a circle feed reusing the H2 feed component, join-by-invite-code, and a
-member list. Model the card on the existing `src/components/leagues/LeagueCard.tsx`.
+## 24. Mobile tab bar (45 min)
+`BottomTabBar.tsx` to the five slots from §11.2: **Home · Circles · Leagues · Activity · More.**
+Circles and Leagues open list views (no room for a per-item rail on mobile); Activity folds in
+Notifications + My Bets + Stat Leaders; More holds Reports, Suggest, profile, settings, Admin.
 
-### Chunk H7 — League feed parity (45 min)
-Point the existing `/leagues/[id]` page at the shared feed component so league markets render with
-the same chips and card treatment as everywhere else. Keep the tournament standings panel visible
-only when `tournament_enabled` is on.
+## 25. Circle screens (60 min)
+Circle list, circle feed (reusing step 21's component), join-by-invite-code, member list. Model the
+card on the existing `src/components/leagues/LeagueCard.tsx`.
 
-### Chunk H8 — Context-aware Create button (60 min)
-Per §11.3, one control whose behavior follows the §5 permissions matrix based on where the user is:
-in a **league** → create directly (F1's RPC); in a **circle** → suggest → moderator approves; on
+## 26. League feed parity (45 min)
+Point `/leagues/[id]` at the shared feed component so league markets render with the same chips and
+card treatment as everywhere else. Keep the tournament standings panel visible only when
+`tournament_enabled` is on.
+
+## 27. Context-aware Create button (60 min)
+Per §11.3, one control whose behavior follows the permissions matrix based on where the user is: in a
+**league** → create directly (step 13's RPC); in a **circle** → suggest → moderator approves; on
 **Home / Explore** → suggest → admin approves. Replaces the standalone "Suggest a Line" entry point.
 
-### Chunk H9 — Comment-section UI for threading (60 min)
-Render G1's one-level threading in `src/components/markets/MarketComments.tsx` — replies nested under
-their top-level parent, replies-to-replies flat under the same parent — plus the comment reaction
-palette. This is the "real sports app comment section" feel the spec is after.
+## 28. Comment section UI (60 min)
+Render step 16's threading in `src/components/markets/MarketComments.tsx` — replies nested under their
+top-level parent, replies-to-replies flat under that same parent — plus the reaction palette. This is
+the "real sports app comment section" the spec is after.
 
 ---
 
-## Chunk 0 — Doc corrections (30 min, do first, no code)
+# Verification
 
-Small and worth doing before anything else, because these notes are actively misleading the work:
+**Every step:** `npm run type-check` && `npm run lint` && `npm run build` clean.
 
-1. **CLAUDE.md** — replace "Docker is not installed" with the true state (Docker Desktop 4.84.0,
-   daemon running, `supabase start` viable). Update the surrounding claim that `db dump` / `start`
-   don't work.
-2. **Spec §10.7** — renumber every per-migration header +1 to match §7 (Finding 2). Add a note that
-   §10.7 headers were desynced by the 2026-07-29 renumber.
-3. **CLAUDE.md** — correct the 0023 line to drop the `/dashboard/trending` route deletion (Finding 3).
-4. **CLAUDE.md + spec §10.5** — change "regenerate types into `src/types/database.ts`" to
-   *hand-update* it, noting the file is manual and that `gen types` output goes to a separate
-   cross-check file (Finding 4).
+**Every migration** (spec §10.5, all ten): applies clean on a fresh local DB · rollback documented ·
+idempotent on re-run · row counts and FKs intact · types hand-updated and app builds · positive tests
+green · negative tests green including every direct-by-ID read · betting-loop regression green ·
+`EXPLAIN` sane on new hot-path queries · one line logged in `MIGRATIONS_LOG.md`.
 
----
-
-## Verification
-
-**Per chunk:** `npm run type-check` && `npm run lint` && `npm run build` clean.
-
-**Per migration** (spec §10.5, all ten): applies clean on fresh local DB · rollback documented ·
-idempotent on re-run · row counts and FKs intact · types hand-updated and app builds · positive
-tests green · negative tests green including every direct-by-ID RLS read · betting-loop regression
-green · `EXPLAIN` sane on new hot-path queries · one line logged in `MIGRATIONS_LOG.md`.
-
-**Commands:**
 ```bash
-npx supabase start                 # local stack (Chunk A1)
+npx supabase start                 # local stack (step 2)
 npx supabase db reset              # replay full history locally
-npm run test:rls                   # RLS matrix — MUST be red before D2, green after
+npm run test:rls                   # RLS matrix — red before 10b, green after
 npm test                           # unit + betting-loop regression
 npx supabase db push --dry-run     # confirm only the intended migration is queued
 ```
 
-**The gate that matters:** 0026 ships only when the entire positive **and** negative matrix is green
-across all six market-joined tables, with every negative asserted as a direct-by-ID read returning
-`[]` and a null error. One red negative test blocks the migration.
-
-**Git:** commit and push directly to `main` per repo convention — no branches, no PRs.
+**Git:** commit and push directly to `main` — no branches, no PRs.
