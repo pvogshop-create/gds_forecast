@@ -40,7 +40,9 @@ red *before* 0026's policies exist.
 - **The "Hot Streak" / "Cold Streak" Stat Leader cards must be preserved.** They read
   `profiles.win_streak` / `loss_streak` and are unrelated to the `trending` enum — 0023 does not
   touch that page, and Chunk B2 verifies they still render.
-- **Plan covers the full arc** (0023 → 0032 → nav), fine-grained through 0026, coarser after.
+- **Plan covers the full arc** (0023 → 0032 → nav), fully chunked end to end: every phase is broken
+  into 30–60 minute units with its own done-criteria. Later chunks (E onward) will still want
+  refinement once the tier surface is real, but each is sized and scoped.
 
 ### Live state verified against prod (`curtlcoxtnoxljzkrlms`)
 
@@ -81,6 +83,11 @@ folded into a chunk rather than filed as a suggestion.
    to *hand-update*, with generated output written to a separate file as a cross-check only.
 5. **Six dev/test leagues remain in prod** — "Test 1"–"Test 4", a duplicate "Forecasters", and
    "Fantasy leauge" (sic). Spec §7 lists deleting these as outstanding De-GDS cleanup. → Chunk B3.
+6. **The "Edit profile" button is a dead link.**
+   `src/app/(app)/profile/[username]/page.tsx:111` links to `/profile/[username]/edit`, which has no
+   route — the directory holds only `page.tsx` and `loading.tsx`. It renders whenever `isOwnProfile`,
+   so every user gets a 404 button on their own profile. Violates the repo's "never ship a button
+   that does nothing" rule. → Chunk G6, alongside the `bio` column that the edit form needs anyway.
 
 ---
 
@@ -302,68 +309,196 @@ wiring the snapshot/restore and pointing the suite at it is scriptable.
 
 ---
 
-## Phase E — Leagues and tournament scoring
+## Phase E — Leagues and tournament scoring (0027, 0028)
 
-- **E1 — 0027 league gating (45 min).** `tournament_enabled` (default `FALSE`), nullable
-  `buy_in_coins`, `leagues.circle_id` (§3.3). Every existing league becomes a plain private space;
-  verify non-owners can't flip the flag.
-- **E2 — 0028 reshape `league_bets` (45 min).** Drop `week_id`, re-key to `(position_id, league_id)`
-  — Decision #1 allows one public bet to count in several leagues (§3.5).
-- **E3 — 0028 rewrite scoring (60 min).** Replace the gross-payout clause in `get_live_week_scores`
-  and `close_league_week` (from `0017`) with the model-(b) union: league-exclusive markets count
-  automatically, public/circle bets only when tagged. Enforce in the tagging RPC that a user may
-  only tag leagues they belong to, and that a league-exclusive position is never tagged elsewhere.
-- **E4 — 0028 full tournament regression (60 min).** A complete cycle on a flag-enabled league:
-  start week → buy-ins → mixed exclusive/tagged bets → resolve → close → pool payout, golf `RANK()`
-  ties, carry-over on no winner, `league_win` notification. Must-fail: a League A-exclusive market
-  scores nothing for League B; an untagged public bet scores for no league.
+*Everything here runs local → staging → prod, since staging exists from D4 onward.*
+
+### Chunk E1 — 0027 league gating migration (45 min)
+Per §3.3: `leagues.tournament_enabled BOOLEAN NOT NULL DEFAULT FALSE`, `leagues.circle_id` (nullable
+FK, `ON DELETE SET NULL`), and `buy_in_coins` dropped to nullable with a `NULL` default. Every one of
+the existing leagues becomes a plain private space — chat, markets, coin-balance leaderboard — with
+its `buy_in_coins` value retained but dormant.
+
+**Done when:** applies clean, existing leagues keep their buy-in values, new leagues default to
+tournament-off.
+
+### Chunk E2 — 0027 verification + owner-only flag (45 min)
+Per §10.7's league-gating block: with the flag off the weekly machinery is a no-op (week-start never
+runs); a **non-owner cannot flip `tournament_enabled`** — that's an RLS/RPC check, not just UI;
+nullable `buy_in_coins` is accepted; league chat, standings, membership and invite codes all still
+work. Add a league-settings toggle wired to the owner check. Betting loop green.
+
+### Chunk E3 — 0028 reshape `league_bets` (45 min)
+Per §3.5: drop the existing PK, drop `week_id` (the week is derived from `markets.resolved_at` at
+scoring time), re-key to `PRIMARY KEY (position_id, league_id)` — Decision #1, so one public bet may
+count in several leagues independently. **Back up the table's contents first**; this is the one
+migration in the sequence that discards a column with live meaning.
+
+**Done when:** the table means exactly "this public/circle position was opted into this league."
+
+### Chunk E4 — 0028 rewrite the two scoring functions (60 min)
+Replace the gross-payout clause in `get_live_week_scores()` and `close_league_week()` (both from
+`0017_league_system.sql`, patched in `0018`) with the model-(b) union from §3.5:
+
+```sql
+AND ( mkt.league_id = L                                     -- league-exclusive: automatic
+   OR pos.id IN (SELECT position_id FROM league_bets WHERE league_id = L) )  -- opted-in
+```
+
+Everything else in those functions — buy-in collection, golf `RANK()`, pool payout, carry-over — is
+untouched. Only "what counts" changes. Circle markets deliberately do **not** auto-count for leagues
+inside that circle (Decision #7).
+
+### Chunk E5 — 0028 tagging RPC + guards (45 min)
+The manual opt-in path, as a `SECURITY DEFINER` RPC matching `place_bet`. Two logic checks that
+cannot be table constraints (§3.5): a user may only tag a league they **belong to**, and a
+league-exclusive position may **never** be tagged to a different league.
+
+### Chunk E6 — 0028 full tournament cycle regression (60 min)
+Per §10.7: on a flag-enabled league, run start week → collect buy-ins → place a mix of
+league-exclusive and tagged-public bets → resolve → close week. Verify pool payout, golf points,
+`RANK()` ties, the pool-rounding remainder, carry-over when nobody wins, and the `league_win`
+notification. **Must-fail:** a League A-exclusive market scores nothing for League B; an *untagged*
+public bet scores for no league; a market resolving outside any active week simply doesn't score
+(no crash).
 
 ---
 
-## Phase F — Scoped creation
+## Phase F — Scoped creation (0029)
 
-- **F1 — 0029 `create_league_market` RPC (60 min).** The single direct member-create path, as a
-  `SECURITY DEFINER` RPC matching the `place_bet` pattern; the table policy stays service-role-only.
-  Non-members rejected.
-- **F2 — 0029 circle suggestion → approval (60 min).** `market_suggestions.target_tier` /
-  `target_circle_id` (§3.7); Mod approves and sets the opening line. Circles have **no** direct-create
-  path — a member inserting a circle-tier market directly must be rejected (locked Decision #4).
-- **F3 — 0029 scoped incident reports (45 min).** Gate report/vote eligibility on
-  `can_view_market()`; scale the threshold as
-  `GREATEST(2, LEAST(4, CEIL(eligible_voters * 0.5)))` (§3.8) — ~3 for a six-person league, 4 for a
-  200-person circle. Public markets must still resolve at the existing 4 / 60% bar.
+### Chunk F1 — `create_league_market` RPC (60 min)
+The **one** direct member-create path in the whole product. `SECURITY DEFINER`, matching the
+`place_bet` pattern: verify the caller is a member of the target league, then insert a `league`-tier
+market with `league_id` set. The `markets` insert policy stays `service_role`-only and the RPC does
+the authorization (§4). Non-members rejected.
+
+### Chunk F2 — League create UI (45 min)
+Wire the RPC to a create form inside the league feed. Reuse the field shapes from
+`src/app/(app)/suggest/page.tsx` (112 lines) rather than authoring a second market form — same
+title/description/category/line inputs, different submit target and no approval step.
+
+### Chunk F3 — 0029 circle suggestion schema (45 min)
+Per §3.7: `market_suggestions.target_tier TEXT NOT NULL DEFAULT 'public' CHECK (target_tier IN
+('public','circle'))` and `target_circle_id`. No `target_league_id` — leagues never suggest. Circles
+have **no** direct-create path, so a member inserting a circle-tier market directly must be rejected
+(locked Decision #4).
+
+### Chunk F4 — Moderator approval + line-setting (60 min)
+Extend the existing admin suggestion-approval flow (`src/app/(admin)/admin/actions.ts`) so a **circle
+moderator** — not just the platform admin — can approve suggestions scoped to their circle and set
+the opening line before it goes live. Approval is the elevated path that inserts the circle-tier
+market. Verify with the seeded **Mod** user; a non-moderator approving must be rejected.
+
+### Chunk F5 — 0029 scoped incident reports + scaled threshold (60 min)
+Per §3.8, two changes to `submit_incident_report` and `cast_incident_vote`: gate eligibility on
+`can_view_market()` so you can only report/vote on markets you can see, and scale the pass bar to
+audience size — `required_votes = GREATEST(2, LEAST(4, CEIL(eligible_voters * 0.5)))`, passing at
+≥60% agreement. That yields ~3 for a six-person league and 4 for a 200-person circle. **Public
+markets must still resolve at the existing 4 / 60% bar** — that's the regression to protect. A
+reporter still cannot vote on their own report.
 
 ---
 
-## Phase G — Social and profiles
+## Phase G — Social and profiles (0030, 0031, 0032)
 
-- **G1 — 0030 comment threading + reactions (60 min).** `parent_comment_id` (one level; replies to
-  replies render flat) + the `comment_reactions` table. Both inherit market visibility. Confirm the
-  existing Realtime subscription still fires.
-- **G2 — 0031 activity feed + notifications (60 min).** `activity_feed.circle_id` and the new
-  notification types. **Audit every `INSERT INTO public.activity_feed` call site** — spec §10.7 flags
-  this as where leaks hide. Note the §10.8 gotcha: an enum value added with `ALTER TYPE … ADD VALUE`
-  cannot be used in the same transaction, so split those into their own migration ahead of any code
-  that inserts them. Leak test as Erin and Dave.
-- **G3 — 0032 profiles (30 min).** `bio` column, public profile pages, self-edit. Verify the existing
-  `profiles_update_own` policy still blocks editing someone else's.
+### Chunk G1 — 0030 threading + comment reactions (45 min)
+Per §3.6 and §2.4: `market_comments.parent_comment_id` (self-FK, `ON DELETE CASCADE`) with the
+partial index `WHERE parent_comment_id IS NOT NULL`, plus the `comment_reactions` table keyed
+`(comment_id, user_id, emoji)`. Note the deliberate asymmetry — `comment_reactions` has **no** emoji
+CHECK constraint (unlike the existing `market_reactions`) so the palette can evolve without a
+migration; validate the allowed set in the app layer.
+
+### Chunk G2 — 0030 RLS + verification (45 min)
+Both new surfaces inherit market visibility via `can_view_market()`. Verify: reply sets
+`parent_comment_id`; reacting twice toggles off; deleting a parent cascades to replies; **you cannot
+read or react to a comment on a market you can't see**, including by direct id. Confirm the existing
+Realtime subscription on `market_comments` still fires on insert.
+
+### Chunk G3 — 0031 notification enum values, alone (45 min)
+Per the §10.8 gotcha, this is deliberately **its own migration ahead of any code that inserts these
+values**: `ALTER TYPE notification_type ADD VALUE IF NOT EXISTS` for `market_about_you`,
+`circle_joined`, `circle_invite`, `comment_reply`, and optionally `league_market_created` /
+`circle_market_created`. A newly added enum value cannot be used in the same transaction it's added
+in, and in some Postgres versions `ADD VALUE` can't run in a transaction block at all. Verify the
+values are actually usable *after* apply before writing anything that inserts them.
+
+### Chunk G4 — 0031 activity feed scope + insert-site audit (60 min)
+`activity_feed.circle_id` (§3.10), then **audit every `INSERT INTO public.activity_feed` call site**
+and confirm each carries the correct tier context. Spec §10.7 names this as where leaks hide — the
+read policy is only half the protection; an insert that drops tier context leaks regardless.
+
+### Chunk G5 — 0031 feed leak tests (45 min)
+Run as **Erin** (public-only) and **Dave** (fully isolated): a League A-exclusive market action must
+not appear in the public feed or in a non-member's feed; a Circle X action must not leak to
+non-members. Public activity still shows for everyone; existing notifications still deliver.
+
+### Chunk G6 — 0032 profiles + the dead Edit-profile link (60 min)
+`profiles.bio TEXT` (§3.11). Then fix a **live bug found during planning**:
+`src/app/(app)/profile/[username]/page.tsx:111` renders an "Edit profile" button linking to
+`/profile/[username]/edit`, and **that route does not exist** — only `page.tsx` and `loading.tsx` do.
+It renders whenever `isOwnProfile`, so every user has a 404 button on their own profile, violating
+the project's own "never ship a button that does nothing" rule. Build the edit route with a form
+covering display name, avatar and the new bio. Verify the existing `profiles_update_own` policy still
+blocks editing someone else's profile.
 
 ---
 
 ## Phase H — Navigation and presentation (spec §11)
 
-Only after the tier migrations are proven. Tier-first nav: Home / Explore / your circles / your
-leagues, with Sports / Social / Actions demoted from routes to **filter chips** inside every feed.
+Only after the tier migrations are proven — the sidebar cannot list "your circles / your leagues as
+places" until circles exist and markets carry a tier. Governing flip: **place (tier) becomes primary
+navigation; category becomes a filter chip inside every feed.**
 
-- **H1** — Sidebar + BottomTabBar restructure to tier-first.
-- **H2** — Category filter chips; retire `/dashboard/{sports,social,actions}` as routes.
-- **H3** — Rename `/dashboard/trending` → home and repoint all nine redirect sites (Finding 3).
-  **Preserve the algorithmic sections and the Hot Streak / Cold Streak Stat Leader cards**; Trending
-  becomes a sort on Home, not a tab.
-- **H4** — Circle and league browse/detail screens.
-- **H5** — Comment-section UI for the new threading.
+Home = **Option A** for alpha (public trending), evolving to the personalized blend later
+(§11.4) — the ranking logic for B isn't worth building before the tiers are validated.
 
-Estimates deliberately coarse — refine once Phase D lands and the tier surface is real.
+### Chunk H1 — Category filter-chip component (45 min)
+Build it first; every later feed chunk consumes it. A chip row (Sports / Social / Actions) that
+filters the feed it sits above. Colors come from `getCategoryColors()` in `src/lib/utils.ts`, not
+CSS tokens — per the repo's design-token rule.
+
+### Chunk H2 — Collapse the category routes into tier feeds (60 min)
+Retire `/dashboard/{sports,social,actions}` as routes; their content becomes the chip-filtered view
+of a single feed. Extract the shared feed body so Home, Explore, circle and league feeds all render
+the same component with a different market scope.
+
+### Chunk H3 — Home route + Stat Leaders module (60 min)
+Rename `/dashboard/trending` → the Home route and repoint all nine redirect sites (`proxy.ts:58,66`,
+`app/page.tsx:12`, `api/auth/callback/route.ts:12,16`, `(auth)/login/page.tsx:16`,
+`(auth)/onboarding/page.tsx:11`, `OnboardingForm.tsx:70`, `lib/auth.ts:37`, `Sidebar.tsx:25,70`,
+`BottomTabBar.tsx:9`). **Trending becomes the default sort, not a destination.** Preserve the four
+algorithmic sections and the **Hot Streak / Cold Streak** Stat Leader cards as a Home module — they
+read `profiles.win_streak` / `loss_streak` and must survive the move intact.
+
+### Chunk H4 — Sidebar restructure, tier-first (60 min)
+`src/components/layout/Sidebar.tsx`: top = places (Home, Explore, each circle individually with its
+avatar, each league individually — Discord-rail style); bottom = utility (My Bets, Notifications,
+Reports, Create, Admin, profile card with coin balance).
+
+### Chunk H5 — Mobile bottom tab bar (45 min)
+`src/components/layout/BottomTabBar.tsx` to the five slots from §11.2: **Home · Circles · Leagues ·
+Activity · More.** Circles and Leagues open list views (no room for a per-item rail on mobile);
+Activity folds in Notifications + My Bets + Stat Leaders; More holds Reports, Suggest, profile,
+settings, Admin.
+
+### Chunk H6 — Circle browse + detail screens (60 min)
+New surfaces: a circle list, a circle feed reusing the H2 feed component, join-by-invite-code, and a
+member list. Model the card on the existing `src/components/leagues/LeagueCard.tsx`.
+
+### Chunk H7 — League feed parity (45 min)
+Point the existing `/leagues/[id]` page at the shared feed component so league markets render with
+the same chips and card treatment as everywhere else. Keep the tournament standings panel visible
+only when `tournament_enabled` is on.
+
+### Chunk H8 — Context-aware Create button (60 min)
+Per §11.3, one control whose behavior follows the §5 permissions matrix based on where the user is:
+in a **league** → create directly (F1's RPC); in a **circle** → suggest → moderator approves; on
+**Home / Explore** → suggest → admin approves. Replaces the standalone "Suggest a Line" entry point.
+
+### Chunk H9 — Comment-section UI for threading (60 min)
+Render G1's one-level threading in `src/components/markets/MarketComments.tsx` — replies nested under
+their top-level parent, replies-to-replies flat under the same parent — plus the comment reaction
+palette. This is the "real sports app comment section" feel the spec is after.
 
 ---
 
