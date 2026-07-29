@@ -65,6 +65,33 @@ Tier-first, not category-first. Top-level nav = Home / Explore / your circles / 
 - **Log each migration** — one line in `MIGRATIONS_LOG.md` (number, date, environment, verified-by).
 - **Play money only.** There is no real-currency path anywhere, ever.
 
+## Local toolchain traps (read before debugging a broken build)
+- **Supabase CLI is a project devDependency, not global** (`npm -g` needs sudo here, and Supabase
+  doesn't support global installs). Run `npx supabase …` **from the repo root** — the link lives in
+  `supabase/.temp/linked-project.json`, so from `~` it fails with "Cannot find project ref."
+  Project ref `curtlcoxtnoxljzkrlms`. There is no `supabase/config.toml`; linking works regardless.
+- **Docker is not installed**, so `supabase db dump` and `supabase start` do not work. To inspect the
+  remote schema, probe the PostgREST endpoint with the service-role key from `.env.local`.
+- **Never run `npm audit fix --force`.** npm's resolver proposes `next@9.3.3` and
+  `eslint-config-next@12` — downgrades of 8 and 4 majors. 12 high-severity advisories are knowingly
+  left open (eslint chain is dev-only; postcss and sharp arrive through Next and need an upstream
+  patch). Plain `npm audit fix` is safe and has been applied.
+- **If `npm run type-check` or `lint` dies with `Cannot find module '../lib/tsc.js'`**, the
+  `node_modules/.bin` symlinks have been flattened into real files by a copy that dereferences
+  symlinks (Finder drag, zip round-trip, cloud sync). `npm install` will **not** repair it — only
+  `rm -rf node_modules && npm install` does.
+- **Tailwind is v4**, so `bg-opacity-*` / `border-opacity-*` / `text-opacity-*` silently do nothing.
+  Use the slash modifier (`bg-[var(--color-coin)]/15`). Three were broken this way until 2026-07-29.
+- **The repo folder gets dragged around.** If a shell reports "working directory was deleted", the
+  directory moved — `find ~ -maxdepth 3 -iname "GDS_Kalshi" -type d` — it is not data loss.
+
+## Design tokens
+Palette is **black / white / purple**; `--color-primary` is `#7C3AED`. All colour lives in the
+`@theme` block of `src/app/globals.css` — never hardcode a hex or a raw Tailwind palette class in a
+component; reference a token. Red, green, and amber are reserved for **meaning only** (NO buttons,
+win/loss, resolution status, coins) and must not be used decoratively. Category chip colours come
+from `getCategoryColors()` in `src/lib/utils.ts`, not from CSS tokens.
+
 ## Git workflow
 Solo repo — **commit and push directly to `main`.** No feature branches, no PRs.
 Do not branch when on the default branch, and do not raise branching as a concern
