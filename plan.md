@@ -1,7 +1,7 @@
 # Forecast — Tier Refactor Plan
 
 28 steps, in order. Each is one thing that changes, sized 30–60 min per part.
-Migrations 0023 → 0032, then the navigation overhaul.
+Migrations 0024 → 0033, then the navigation overhaul.
 
 ---
 
@@ -14,7 +14,7 @@ Forecast is adding a **three-tier visibility model** (Public / Circle / League).
 The repo has two test files, both pure math unit tests. No authenticated-client RLS harness, no
 test-user matrix, no betting-loop regression.
 
-That matters at **step 10 (migration 0026)**, which rewrites the market read policy from
+That matters at **step 10 (migration 0027)**, which rewrites the market read policy from
 `USING (auth.role() = 'authenticated')` — every logged-in user reads every market — into tier-scoped
 visibility. Get it wrong and private league markets leak between teenagers, and per spec §10.1 it
 fails **silently**: no exception, no build error, no type error. The only way to catch it is querying
@@ -143,7 +143,7 @@ here on — the tripwire for "this migration broke the product."
 
 # Part II — Tier foundation (steps 7–10)
 
-## 7. Drop the `trending` category — 0023 (2h)
+## 7. Drop the `trending` category — 0024 (2h)
 
 Trending is both an enum value and the name of the home tab; the collision causes subtle bugs in tier
 work. It becomes a *view*, not a category.
@@ -168,7 +168,7 @@ sections, and the **Hot Streak / Cold Streak** cards — they read `profiles.win
 markets still 11, positions still 20. Delete the six dev/test leagues (Finding 5), checking for
 attached members/bets/chat first — destructive prod write. Log in `MIGRATIONS_LOG.md`, commit.
 
-## 8. Circles and circle members — 0024 (105 min)
+## 8. Circles and circle members — 0025 (105 min)
 
 **8a — Tables + RLS (60 min).** Per spec §2.1–2.2: `circles`, `circle_members`, the `member_count`
 sync trigger, slug uniqueness, and their RLS policies — **shipped together**, never a table without
@@ -179,7 +179,7 @@ Dave.
 own circle; **a user cannot insert a `circle_members` row for someone else**; duplicate slug
 rejected; circle delete cascades with no orphans; creator gets `role='creator'`. Betting loop green.
 
-## 9. Market tier columns — 0025 (90 min)
+## 9. Market tier columns — 0026 (90 min)
 
 **9a — Columns + constraint (45 min).** Per spec §3.1: `visibility_tier`, `league_id`, `circle_id` on
 `markets`, all defaulting to public, plus the scope CHECK.
@@ -192,7 +192,7 @@ reject: a public market with either scope id set; a league market with null `lea
 market with null `circle_id`; and **any** market with both ids. Verify cascades — deleting a league
 removes its league-tier markets and their positions/comments, and reaches **no** public rows.
 
-## 10. Tier-aware RLS — 0026 (4h) ⚠️ the critical one
+## 10. Tier-aware RLS — 0027 (5h) ⚠️ the critical one
 
 The migration that leaks data if it's wrong. Tests are written **red, before the policies exist**.
 
@@ -218,7 +218,27 @@ until 10a is fully green.
 point, or feed entry belonging to a Circle X market — including by direct id. Plus: the helper
 returns the correct boolean for all five users × every forbidden market.
 
-**10d — Perf, ship, staging (60 min).** `EXPLAIN` the market-list and feed queries under a normal
+**10d — Close the write path (60 min).** ⚠️ **Not in spec §4 — found during a plan audit.** §4
+specifies SELECT policies and the `markets` INSERT path, and nothing else. The existing insert
+policies on dependent tables check authorship only:
+
+```sql
+-- 0019_comments_and_attribution.sql:25   and   0016_market_reactions.sql:25
+WITH CHECK (user_id = auth.uid())      -- "are you inserting as yourself" — that's all
+```
+
+Neither asks whether you can *see* the market. So once 10b–10c make reads tier-scoped, an outsider
+who knows a private market's UUID can still **write** into it: inject a comment or reaction into a
+league or circle market they were never allowed to read. Members who can see the market then see the
+injected content. It also leaks existence — the insert succeeds or fails depending on whether the
+UUID is real.
+
+Add `can_view_market(market_id)` to the `WITH CHECK` of every dependent-table insert policy
+(`market_comments`, `market_reactions`, and any other market-joined write path), and extend the
+matrix with **negative write** tests: Bob's insert into a Circle X market must be rejected, not
+merely invisible. A read-only test suite would pass this hole silently.
+
+**10e — Perf, ship, staging (60 min).** `EXPLAIN` the market-list and feed queries under a normal
 user; the helper runs per row, so confirm no pathological plan (spec §4 flags a join-based rewrite
 for larger scale). Ship, log, commit.
 
@@ -227,13 +247,13 @@ on, migrations climb local → staging → prod. Creating it needs dashboard cli
 yours; wiring the restore and pointing the suite at it is scriptable.
 
 > **Gate:** this migration ships only when the entire positive **and** negative matrix is green
-> across all six tables. One red negative test blocks it.
+> across all six tables — **reads and writes both**. One red negative test blocks it.
 
 ---
 
 # Part III — Leagues and scoring (steps 11–12)
 
-## 11. League tournament gating — 0027 (90 min)
+## 11. League tournament gating — 0028 (90 min)
 
 **11a — Migration (45 min).** Per spec §3.3: `tournament_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
 `leagues.circle_id` (nullable, `ON DELETE SET NULL`), and `buy_in_coins` dropped to nullable. Every
@@ -244,7 +264,7 @@ retained but dormant.
 **a non-owner cannot flip it** (an RPC/RLS check, not just UI); nullable buy-in accepted; league chat,
 standings, membership and invite codes all still work. Wire the settings toggle to the owner check.
 
-## 12. Model (b) tournament scoring — 0028 (3.5h)
+## 12. Model (b) tournament scoring — 0029 (3.5h)
 
 A bet counts for a league if the market is league-exclusive to it (**automatic**) or the user tagged
 a public/circle bet into it (**manual**). Circle markets never auto-count, even inside that circle
@@ -278,7 +298,7 @@ for no league; a market resolving outside any week simply doesn't score.
 
 ---
 
-# Part IV — Creation paths (steps 13–15) · migration 0029
+# Part IV — Creation paths (steps 13–15) · migration 0030
 
 ## 13. League market direct-create (105 min)
 
@@ -318,7 +338,7 @@ A reporter still can't vote on their own report.
 
 # Part V — Social and profiles (steps 16–19)
 
-## 16. Comment threading and reactions — 0030 (90 min)
+## 16. Comment threading and reactions — 0031 (90 min)
 
 **16a — Migration (45 min).** Per spec §3.6 and §2.4: `market_comments.parent_comment_id` (self-FK,
 cascade) with a partial index, plus `comment_reactions` keyed `(comment_id, user_id, emoji)`. Note the
@@ -330,7 +350,7 @@ evolve without a migration; validate in the app layer.
 read or react to a comment on a market you can't see**, including by direct id. Confirm the existing
 Realtime subscription still fires.
 
-## 17. Notification types — 0031a (45 min)
+## 17. Notification types — 0032a (45 min)
 
 Deliberately **its own migration, ahead of any code that inserts these values.**
 `ALTER TYPE notification_type ADD VALUE IF NOT EXISTS` for `market_about_you`, `circle_joined`,
@@ -340,7 +360,7 @@ Per spec §10.8: a newly added enum value **cannot be used in the transaction th
 some Postgres versions `ADD VALUE` can't run in a transaction block at all. Verify the values are
 usable *after* apply before writing anything that inserts them.
 
-## 18. Activity feed scoping — 0031b (105 min)
+## 18. Activity feed scoping and new notifications — 0032b (165 min)
 
 **18a — Column + insert audit (60 min).** `activity_feed.circle_id` (spec §3.10), then **audit every
 `INSERT INTO public.activity_feed` call site** and confirm each carries tier context. Spec §10.7 names
@@ -351,7 +371,24 @@ context leaks regardless.
 action must not appear in the public feed or a non-member's feed; a Circle X action must not leak.
 Public activity still shows for everyone; existing notifications still deliver.
 
-## 19. Profile bio and the missing edit route — 0032 (60 min)
+**18c — Actually fire the new notifications (60 min).** Step 17 only adds enum *values*; without this
+part nothing ever creates or renders them, and the whole of spec §3.9 ships as dead schema.
+
+- **`market_about_you`** — the spec's named viral hook. When a market's title or description
+  `@`-mentions an existing user, notify them ("people are forecasting on a market about you"). Reuse
+  the mention-parsing that already exists for comment `@`-mentions (`0019`) rather than writing a
+  second parser. Fires on market create and on approval.
+- **`circle_joined` / `circle_invite`** — on joining a circle and on being invited (step 25's flow).
+- **`comment_reply`** — when someone replies to your comment (step 16's `parent_comment_id`).
+
+Each must respect tier visibility: never notify a user about a market they can't see. Render all four
+in the existing notifications UI.
+
+*Not in scope:* the non-user version of `market_about_you` ("47 classmates are forecasting about you,
+sign up to see"). That needs an out-of-band share mechanic, not a notification — spec Decision #5
+defers it to the growth phase.
+
+## 19. Profile bio and the missing edit route — 0033 (60 min)
 
 `profiles.bio TEXT` (spec §3.11), then fix Finding 6: `profile/[username]/page.tsx:111` renders an
 "Edit profile" button linking to `/profile/[username]/edit`, and **that route doesn't exist** — the
@@ -388,7 +425,8 @@ Rename `/dashboard/trending` → Home and repoint all nine redirect sites (`prox
 `OnboardingForm.tsx:70`, `lib/auth.ts:37`, `Sidebar.tsx:25,70`, `BottomTabBar.tsx:9`).
 
 Trending becomes the default **sort**, not a destination. Preserve the four algorithmic sections and
-the **Hot Streak / Cold Streak** cards as a Home module — they must survive the move intact.
+**all three** Stat Leader cards — **Hot Streak, Cold Streak, and Week's Best** — as a Home module
+(spec §11.3). They exist in the code today and must survive the move intact.
 
 ## 23. Sidebar, tier-first (60 min)
 `Sidebar.tsx`: top = places (Home, Explore, each circle individually with its avatar, each league
@@ -421,14 +459,38 @@ the "real sports app comment section" the spec is after.
 
 ---
 
+# Deliberately not in these 28 steps
+
+Stated so absence reads as a decision rather than an oversight. The first three are spec content the
+plan consciously defers; the rest is spec §9's own exclusion list.
+
+**Deferred spec content:**
+
+- **`circles.joining_policy` beyond invite codes** (§2.1) and **`circle_join_requests`** (§2.3). The
+  column ships with the table in step 8 and accepts `open` / `invite_code` / `request_approval`, but
+  only the invite-code path is built (step 25). Decision #2 says codes are the right call for alpha —
+  and notes most schools don't issue student email, so domain verification may never be primary.
+  `circle_join_requests` is needed only for `request_approval`; the spec marks it deferrable.
+- **League → circle promote** (§3.3). Step 11 adds `leagues.circle_id`, which is what would power a
+  league inside a circle pushing one of its markets up to circle tier. The column lands; the mechanic
+  doesn't. It needs its own approval-and-attribution design, and nothing else depends on it.
+- **The non-user "market about you" share mechanic** (Decision #5) — see step 18c.
+
+**Out of scope per spec §9:** social graph (follow/friend/block), direct messaging, cross-circle
+leagues, email-domain circle verification, and real-money anything. The play-coin economy is the
+entire economy, permanently.
+
+---
+
 # Verification
 
 **Every step:** `npm run type-check` && `npm run lint` && `npm run build` clean.
 
 **Every migration** (spec §10.5, all ten): applies clean on a fresh local DB · rollback documented ·
 idempotent on re-run · row counts and FKs intact · types hand-updated and app builds · positive tests
-green · negative tests green including every direct-by-ID read · betting-loop regression green ·
-`EXPLAIN` sane on new hot-path queries · one line logged in `MIGRATIONS_LOG.md`.
+green · negative tests green including every direct-by-ID read **and every negative write** ·
+betting-loop regression green · `EXPLAIN` sane on new hot-path queries · one line logged in
+`MIGRATIONS_LOG.md`.
 
 ```bash
 npx supabase start                 # local stack (step 2)

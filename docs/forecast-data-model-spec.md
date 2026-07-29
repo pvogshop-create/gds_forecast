@@ -363,6 +363,18 @@ CREATE POLICY activity_select_visible ON public.activity_feed FOR SELECT
 **Insert policies** encode the creation rules from the §1 table:
 - `markets` insert: `service_role` **OR** an authenticated user inserting a `league`-tier market into a league they belong to. Public and circle markets are both inserted by the approval action (which runs with elevated privilege when a moderator/admin approves a suggestion and sets the line), so they're covered by `service_role`. Only **league** markets have a direct member-create path: route that through a `SECURITY DEFINER` RPC (`create_league_market`) that checks the user is a member of the target league, matching the existing `place_bet` pattern. The table policy then stays `service_role`-only and the RPC does the authorization for the one direct path.
 
+**Insert policies on dependent tables — the gap this section originally left open.** The paragraph
+above specifies the `markets` insert path and nothing else, which is not enough. The existing insert
+policies on the market-joined tables check authorship only — `mc_insert` (`0019`) and
+`reactions_insert` (`0016`) are both `WITH CHECK (user_id = auth.uid())`. Once the SELECT policies
+above are tier-scoped, those write paths are still wide open: a user who knows a private market's
+UUID can insert a comment or reaction into a league or circle market they cannot read, and members
+who *can* read it will see the injected content. It also leaks existence, since the insert succeeds
+or fails depending on whether the UUID is real. **Every dependent-table insert policy needs
+`can_view_market(market_id)` in its `WITH CHECK` alongside the authorship test, and the RLS matrix
+needs negative *write* cases, not only negative reads.** *(Added 2026-07-29 after a plan audit; the
+original §4 covered reads only.)*
+
 **Performance note:** `can_view_market()` runs per row. For alpha (hundreds of users, thousands of rows) this is fine. At larger scale, swap the helper for a join-based policy or materialize a per-user visible-market set. Not a launch concern; flagged for later.
 
 **Testing is mandatory here.** RLS fails silently — a wrong policy leaks private markets the moment they exist. Before building each scoped table, write the Vitest case: a user in League A queries and sees public + League-A rows and **not** League-B rows. Write it, watch it fail, then write the policy. Seed a matrix of test users (in A only / in Circle X only / in both / in neither) via the existing `supabase/seed.ts`.
@@ -402,23 +414,26 @@ After the refactor:
 
 Each migration is independently deployable and leaves the app working.
 
-> **Renumbered +1 on 2026-07-29.** `0022` was consumed by the de-brand data migration
-> (`0022_debrand_market_content.sql`, applied), which rewrote the 7 GDS-titled seeded markets in
-> place. De-trending therefore became **0023** and every migration below shifted up one. The list
-> here reflects the current numbering; earlier drafts of this section had de-trending at 0022.
+> **Renumbered +1 twice, both on 2026-07-29.** First `0022` was consumed by the de-brand data
+> migration (`0022_debrand_market_content.sql`, applied). Then `0023` was consumed by
+> `0023_fix_league_notification_and_realtime.sql` (applied local-only) — the missing `league_win`
+> enum value and the missing league-chat realtime publication, both found while building the E2E
+> suite. De-trending therefore became **0024** and every migration below shifted up one more. The
+> list here and the §10.7 blocks reflect the current numbering.
 
-0. **0022 — De-brand seed content.** ✅ Applied 2026-07-29. `UPDATE` the 7 GDS-named markets' titles
+0. **0022 — De-brand seed content.** ✅ Applied 2026-07-29 (prod). `UPDATE` the 7 GDS-named markets' titles
    and descriptions in place; no `DELETE`, so attached positions/comments/history survive.
-1. **0023 — De-trending.** Reassign `trending` markets, swap the `market_category` enum (§3.2). No tier logic yet. Lowest risk.
-2. **0024 — Circles tables.** `circles`, `circle_members`, member-count trigger, their RLS. No markets touch circles yet, so nothing else changes.
-3. **0025 — Market tier columns.** Add `visibility_tier` / `league_id` / `circle_id` + the scope constraint to `markets`, all defaulting to public (§3.1). Existing markets unaffected.
-4. **0026 — Tier-aware RLS.** The `can_view_market()` helper and the rewritten SELECT policies on all market-joined tables (§4). **Ship with the test suite from §4 green.** This is the migration that, if wrong, leaks data — treat it with the most care.
-5. **0027 — League gating + circle link.** `tournament_enabled`, nullable `buy_in_coins`, `leagues.circle_id` (§3.3). All existing leagues become non-tournament private spaces; flip individual leagues on as desired.
-6. **0028 — Model (b) scoring.** Reshape `league_bets` (drop `week_id`), rewrite the gross-payout clause in `get_live_week_scores` and `close_league_week` (§3.5).
-7. **0029 — Scoped creation + suggestions.** `create_league_market` RPC (the one direct member-create path), market insert policy, the circle suggestion → moderator-approval flow with line-setting, `market_suggestions.target_tier` / `target_circle_id` (§3.7), scoped incident-report eligibility + scaled threshold (§3.8).
-8. **0030 — Comments threading + comment reactions.** `parent_comment_id`, `comment_reactions` table (§3.6, §2.4).
-9. **0031 — Activity feed scope + notifications.** `activity_feed.circle_id`, new notification types, audit every feed-insert site for tier context (§3.10, §3.9).
-10. **0032 — Profiles.** `bio` column (§3.11). Public profile pages and profile edit are app work that can land alongside.
+1. **0023 — League notification + realtime fixes.** ✅ Applied 2026-07-29 (**local only** — still needs a prod push). `ADD VALUE 'league_win'` to `notification_type` (its absence rolled back every week-close that had a winner) and add `league_messages` to the `supabase_realtime` publication (league chat never updated live). Pure bug fix, no design content.
+2. **0024 — De-trending.** Reassign `trending` markets, swap the `market_category` enum (§3.2). No tier logic yet. Lowest risk.
+3. **0025 — Circles tables.** `circles`, `circle_members`, member-count trigger, their RLS. No markets touch circles yet, so nothing else changes.
+4. **0026 — Market tier columns.** Add `visibility_tier` / `league_id` / `circle_id` + the scope constraint to `markets`, all defaulting to public (§3.1). Existing markets unaffected.
+5. **0027 — Tier-aware RLS.** The `can_view_market()` helper and the rewritten SELECT policies on all market-joined tables (§4). **Ship with the test suite from §4 green.** This is the migration that, if wrong, leaks data — treat it with the most care.
+6. **0028 — League gating + circle link.** `tournament_enabled`, nullable `buy_in_coins`, `leagues.circle_id` (§3.3). All existing leagues become non-tournament private spaces; flip individual leagues on as desired.
+7. **0029 — Model (b) scoring.** Reshape `league_bets` (drop `week_id`), rewrite the gross-payout clause in `get_live_week_scores` and `close_league_week` (§3.5).
+8. **0030 — Scoped creation + suggestions.** `create_league_market` RPC (the one direct member-create path), market insert policy, the circle suggestion → moderator-approval flow with line-setting, `market_suggestions.target_tier` / `target_circle_id` (§3.7), scoped incident-report eligibility + scaled threshold (§3.8).
+9. **0031 — Comments threading + comment reactions.** `parent_comment_id`, `comment_reactions` table (§3.6, §2.4).
+10. **0032 — Activity feed scope + notifications.** `activity_feed.circle_id`, new notification types, audit every feed-insert site for tier context (§3.10, §3.9).
+11. **0033 — Profiles.** `bio` column (§3.11). Public profile pages and profile edit are app work that can land alongside.
 
 The De-GDS cleanup (removing the `@gds.org` auth check and GDS copy, deleting dev test leagues) is
 **application** work, not migrations. ✅ Done 2026-07-29 — the auth check and copy are gone and the
@@ -430,13 +445,13 @@ palette is recolored; the dev test leagues are still outstanding.
 
 These change specific columns or logic. Resolve before the migration each one touches.
 
-**1. Can one public/circle bet count in multiple leagues?** (Affects `league_bets` PK in 0028.)
+**1. Can one public/circle bet count in multiple leagues?** (Affects `league_bets` PK in 0029.)
 *Recommendation: yes — allow it (PK on `(position_id, league_id)`).* A user in three leagues can opt the same public bet into all three; it counts independently in each. Simpler for users ("it counts everywhere I want it to"), and the union scoring handles it. The alternative (one league per bet, UNIQUE on `position_id`) prevents "spreading one good call across all my leagues," if you consider that a problem. Easy to switch later.
 
 **2. How do you stop someone joining a circle they don't belong to (e.g. claiming a school they don't attend)?** (Affects circle `joining_policy` rollout.)
 *Recommendation: invite codes for alpha; defer real verification.* Codes distributed by trusted seed users are good enough at small scale. Email-domain verification per circle (e.g. only `@lincolnhigh.edu` can join the Lincoln circle) is the eventual answer but it's a Phase 4+ feature, not a launch blocker. Note: most schools don't give students email, so domain verification is unreliable anyway — codes may stay the primary mechanism.
 
-**3. League market resolution: creator-resolves vs always-vote.** (Affects 0029 incident logic.)
+**3. League market resolution: creator-resolves vs always-vote.** (Affects 0030 incident logic.)
 *Recommendation: creator resolves directly; vote is the dispute path.* In a 6-person friend group, requiring 4 votes to resolve every market is friction that kills the casual-market vibe. The creator made the market, they call it; if someone disagrees, the dispute vote (low threshold) overrides. This matches how friend groups actually settle bets.
 
 **4. Circle market creation. — DECIDED: members suggest, moderator approves & sets the line.**
@@ -445,10 +460,10 @@ Circle markets are never created directly. A member proposes the market (optiona
 **5. The "market about you" hook for people who aren't on the platform yet.** (Affects whether `market_about_you` is enough.)
 *Recommendation: ship the in-app version now (notify existing mentioned users); treat the non-user version as a separate share feature later.* You can't send an in-app notification to someone with no account. The true viral version — "47 classmates are forecasting about you, sign up to see" — requires an out-of-band reach: the market creator shares a link/screenshot, or you capture an invite. That's a share-mechanic feature, not a notification, and it's worth building in the growth phase. For now, mentioning an existing user notifies them, which already drives re-engagement.
 
-**6. Comment threading depth.** (Affects 0030.)
+**6. Comment threading depth.** (Affects 0031.)
 *Recommendation: one level (top-level + replies, replies-to-replies render flat).* Full nesting is complexity the sports-comment-section feel doesn't need. One level captures "X replied to Y's take" without infinite-tree rendering headaches.
 
-**7. Do circle-tier markets auto-count for leagues inside that circle?** (Affects 0028 scoring clause.)
+**7. Do circle-tier markets auto-count for leagues inside that circle?** (Affects 0029 scoring clause.)
 *Recommendation: no — only league-exclusive markets auto-count.* Keep model (b) crisp: automatic counting is strictly for markets that *belong to the league*. A circle market a league member bets on is treated like a public bet — opt-in via tag if they want it in their league tournament. Mixing circle markets into automatic league scoring blurs the tiers and creates weird edge cases (a market counting for several leagues at once inside a circle).
 
 ---
@@ -565,7 +580,14 @@ The core loop that must **never** break, regardless of which migration just land
 
 1. Seed user starts with a known balance. **Claim daily bonus** → balance increases by the bonus amount; `last_daily_claim` updates; a second claim the same day is rejected.
 2. **Place a bet** on a visible `open` market → a `positions` row is created; `yes_pool`/`no_pool` shift; `yes_probability` recomputes via trigger; a `market_probability_history` row is appended; the user's `coins` decrease by the stake; `yes_odds_at_bet` is locked.
-3. **Resolve the market** (admin path) → winning positions get `status='won'` and a `payout`; losing get `status='lost'`; winners' `coins` increase; the streak trigger updates `win_streak`/`loss_streak`; `market_resolved` + `payout_received` notifications are created.
+3. **Resolve the market** (admin path) → winning positions get `status='won'` and a `payout`; losing get `status='lost'`; winners' `coins` increase; the streak trigger updates `win_streak`/`loss_streak`; a `payout_received` notification is created **for each winner**.
+   > **Corrected 2026-07-29.** This step previously claimed `market_resolved` **and**
+   > `payout_received` notifications are created. In fact `resolve_market` (0007) emits only
+   > `payout_received`, and only to winners — the `market_resolved` enum value declared in 0002 is
+   > never inserted by any migration or code path, so **a user who loses a bet is never notified
+   > that the market resolved.** That is a real product gap, not a spec detail; `e2e/betting-loop.spec.ts`
+   > and `e2e/resolution-payout.spec.ts` now pin the current behaviour so that closing the gap is a
+   > deliberate change rather than an accident.
 4. **Leaderboard reflects** the new balances; the **weekly top earner** RPC returns the right user; the activity feed shows the bet and the resolution.
 
 If any step fails after a migration, the migration broke the core loop — stop and fix before anything else.
@@ -576,72 +598,73 @@ Each block lists what must work, what must be forbidden, the regression to confi
 
 > **Renumbered +1 on 2026-07-29 — second pass.** When `0022` was consumed by the de-brand migration, §7's list was shifted but *these* block headers were missed, leaving them one behind for several days. Following them by header would have applied the wrong test block to every migration — notably testing tier columns (0025) with the tier-RLS checklist. The headers below are now correct and match §7. If you find a migration number in this document that disagrees with §7, §7 wins.
 
-**0023 — De-trending (enum swap)**
+**0024 — De-trending (enum swap)**
 - *Must work:* zero markets/suggestions have `category='trending'` after; all former trending rows now carry a valid category; the new `market_category` enum is exactly `{sports, social, actions}`; market count before == after (none dropped).
 - *Must fail:* inserting a market with `category='trending'` raises an error (value no longer exists).
 - *Regression:* the betting loop; the Suggest form (which only ever offered the three real categories) still submits; dashboards filter correctly.
 - *Edge:* confirm no view, default, or check constraint still references the old enum (the swap drops the old type — if anything depends on it, the drop fails, which is the signal to fix it). Verify the suggestions table migrated too.
 - *Done when:* enum is three values, no `trending` rows remain, betting loop green.
 
-**0024 — Circles tables**
+**0025 — Circles tables**
 - *Must work:* create a circle; add a member; `member_count` increments on insert and decrements on delete (trigger test); a member can read their own circle; slug uniqueness is enforced.
 - *Must fail:* a user inserting a `circle_members` row for *another* user (`user_id != auth.uid()`) is rejected; a duplicate slug is rejected.
 - *Regression:* markets, leagues, betting loop entirely unaffected (nothing references circles yet).
 - *Edge:* deleting a circle cascades to `circle_members` with no orphans and leaves `member_count` consistent; the creator row gets `role='creator'`.
 - *Done when:* circle CRUD + membership + count trigger verified; no impact on existing tables.
 
-**0025 — Market tier columns**
+**0026 — Market tier columns**
 - *Must work:* every pre-existing market now has `visibility_tier='public'`, `league_id=NULL`, `circle_id=NULL`; you can insert a `league`-tier market with a `league_id`; a `circle`-tier market with a `circle_id`.
 - *Must fail (the scope constraint):* a `public` market with a non-null `league_id` or `circle_id`; a `league` market with a null `league_id`; a `circle` market with a null `circle_id`; **any** market with *both* `league_id` and `circle_id` set.
-- *Regression:* RLS is **not yet changed** here, so all markets (including new tiered ones) are still globally readable — confirm the betting loop still works; the visibility enforcement lands in 0026, and that ordering is intentional.
+- *Regression:* RLS is **not yet changed** here, so all markets (including new tiered ones) are still globally readable — confirm the betting loop still works; the visibility enforcement lands in 0027, and that ordering is intentional.
 - *Edge:* `ON DELETE CASCADE` — deleting a league deletes its league-tier markets; deleting a circle deletes its circle-tier markets (and, by chain, their positions/comments). Verify no shared/public data is caught in the cascade.
 - *Done when:* all existing markets are public-tier, the scope constraint rejects every malformed combination, betting loop green.
 
-**0026 — Tier-aware RLS (the critical one)**
+**0027 — Tier-aware RLS (the critical one)**
 - *Must work (positive matrix):* Alice sees public + League A + Circle X markets; Bob sees public + League A; Carol sees public + Circle X; Dave sees public + League B + Circle Y; Erin sees public only.
 - *Must fail (negative matrix — the whole point):* **Bob cannot read any Circle X market**, by list *or by direct UUID*; **Carol cannot read any League A market**; **Dave cannot read League A or Circle X anything**; **Erin cannot read any tier-scoped market**. Run the §10.4 direct-by-ID test for each forbidden pair.
 - *Dependent-table cascade:* repeat the positive+negative matrix for `positions`, `market_comments`, `market_reactions`, `market_probability_history`, and `activity_feed`. Bob must not be able to read a comment, a position, a price-history point, or a feed entry belonging to a Circle X market — even by direct id.
+- *Must fail (negative **write** matrix):* Bob cannot **insert** a comment or a reaction onto a Circle X market, even knowing its exact UUID; Carol cannot write to a League A market. A read-only suite passes this hole silently — see §4's insert-policy note. Assert the insert is *rejected*, not merely invisible.
 - *Helper:* `can_view_market()` returns the correct boolean for all 5 users × the forbidden markets.
 - *Regression:* public markets remain fully visible to everyone; betting loop works for visible markets.
 - *Performance:* `EXPLAIN` the main market-list query under a normal user; confirm the per-row `can_view_market()` call isn't producing a pathological plan at seed scale (note §4's flag for larger-scale optimization).
-- *Done when:* **the entire positive AND negative matrix is green across all six tables**, plus the helper assertions. This migration does not ship on a single red negative test.
+- *Done when:* **the entire positive AND negative matrix is green across all six tables, for reads and writes both**, plus the helper assertions. This migration does not ship on a single red negative test.
 
-**0027 — League gating + circle link**
+**0028 — League gating + circle link**
 - *Must work:* new leagues default `tournament_enabled=false`; existing leagues retain their `buy_in_coins`; you can set a league's `circle_id`; flipping `tournament_enabled=true` activates the weekly machinery.
 - *Must fail / no-op:* with `tournament_enabled=false`, the tournament path does not run (week-start is never invoked / is a no-op); a league member who isn't the owner can't flip the flag.
-- *Regression:* league chat, standings, membership, invite codes all work; a league with the flag **on** still runs a full tournament (verified fully in 0028).
+- *Regression:* league chat, standings, membership, invite codes all work; a league with the flag **on** still runs a full tournament (verified fully in 0029).
 - *Edge:* a nullable `buy_in_coins` is accepted; existing leagues with a value remain valid and dormant until enabled.
 - *Done when:* default-off confirmed, existing leagues intact, flag toggles behavior.
 
-**0028 — Model (b) scoring**
+**0029 — Model (b) scoring**
 - *Must work:* a bet on a **League A-exclusive** market counts toward League A's tournament with **no manual tag**; a public bet **tagged** to League A counts; the union produces the correct `gross_payout`; week membership derives correctly from the market's `resolved_at`.
 - *Must fail:* a League A-exclusive market does **not** count toward League B; an **untagged** public bet counts toward **no** league.
 - *Edge:* a public bet tagged to two leagues counts in **each** independently (Decision #1); golf `RANK()` ties and the pool-rounding remainder still behave; a league-exclusive market that resolves *outside* any active week window simply doesn't score (no crash).
 - *Regression:* run a **full tournament cycle** on a flag-enabled league — start week → collect buy-ins → place a mix of league-exclusive and tagged-public bets → resolve markets → close week → verify pool payout, golf points, carry-over-on-no-winner, and the `league_win` notification.
 - *Done when:* the union scoring is correct for every must-work/must-fail case and a full cycle pays out correctly.
 
-**0029 — Scoped creation + suggestions**
+**0030 — Scoped creation + suggestions**
 - *Must work:* a League A member directly creates a League A market via `create_league_market`; a Circle X member submits a circle suggestion; **Mod** approves it and sets the opening line; the approved market goes live as a `circle`-tier market visible to Circle X members.
 - *Must fail:* a non-member creates a market in a league they're not in (rejected); a non-moderator approves a circle suggestion (rejected); a member tries to **directly insert** a circle-tier market bypassing the suggestion flow (rejected — circles have no direct-create path); a user reports/votes on an incident for a market they can't see (rejected).
 - *Edge:* the scaled incident threshold computes correctly — `GREATEST(2, LEAST(4, CEIL(eligible_voters * 0.5)))` gives ~3 for a 6-person league and 4 for a 200-person circle; a reporter still can't vote on their own report.
 - *Regression:* public suggestion → admin approval still works; existing incident voting on public markets still resolves at 4/60%.
 - *Done when:* all three creation paths behave per the §5 matrix and incident eligibility is correctly scoped.
 
-**0030 — Comments threading + reactions**
+**0031 — Comments threading + reactions**
 - *Must work:* post a top-level comment; reply to it (`parent_comment_id` set); react to a comment; reacting again toggles the reaction off.
 - *Must fail:* reacting to or reading a comment on a market you can't see (inherits market visibility); replying to a non-existent parent.
 - *Edge:* deleting a parent comment cascades to its replies; a reply renders under its top-level parent.
 - *Regression:* existing flat comments still load; the Realtime subscription still fires on new inserts.
 - *Done when:* threading + reactions work and inherit market visibility.
 
-**0031 — Activity feed scope + notifications**
+**0032 — Activity feed scope + notifications**
 - *Must work:* the new notification types insert and render; activity entries carry `circle_id`; a League A market action appears in **League A members'** feeds.
 - *Must fail (leak test):* a League A-exclusive market action does **not** appear in the public feed or in a non-member's feed (run as Erin and Dave); a Circle X action doesn't leak to non-members.
 - *Edge:* **audit every `INSERT INTO public.activity_feed` site** and confirm each passes the correct tier context — this is where leaks hide. Verify the `ADD VALUE` enum additions actually applied (see §10.8).
 - *Regression:* public activity still shows for everyone; existing notifications still deliver.
 - *Done when:* feed visibility matches market visibility on every insert path and new notification types work.
 
-**0032 — Profiles**
+**0033 — Profiles**
 - *Must work:* `bio` accepts and returns text; another user's public profile page loads; the profile-edit form saves your own changes.
 - *Must fail:* editing another user's profile (rejected by the existing `profiles_update_own` policy).
 - *Regression:* profile reads, leaderboards, and the betting loop all work.
@@ -651,8 +674,8 @@ Each block lists what must work, what must be forbidden, the regression to confi
 
 These bite at apply-time or hide as silent leaks; check each where noted.
 
-- **Enum value drop (0023).** Postgres can't drop an enum value in place — the three-step swap in §3.2 is mandatory. The old-type `DROP` will fail if any default, view, or constraint still references it; treat that failure as the to-do list of things to repoint first.
-- **`ALTER TYPE ... ADD VALUE` (0031 notifications).** A newly added enum value **cannot be used in the same transaction it's added in**, and in some Postgres versions `ADD VALUE` can't run inside a transaction block at all. Verify the migration actually applies on staging and that the new notification types are usable immediately after; if not, split the `ADD VALUE` statements into their own migration ahead of any code that inserts those values.
+- **Enum value drop (0024).** Postgres can't drop an enum value in place — the three-step swap in §3.2 is mandatory. The old-type `DROP` will fail if any default, view, or constraint still references it; treat that failure as the to-do list of things to repoint first.
+- **`ALTER TYPE ... ADD VALUE` (0032 notifications).** A newly added enum value **cannot be used in the same transaction it's added in**, and in some Postgres versions `ADD VALUE` can't run inside a transaction block at all. Verify the migration actually applies on staging and that the new notification types are usable immediately after; if not, split the `ADD VALUE` statements into their own migration ahead of any code that inserts those values.
 - **`can_view_market()` performance.** It runs once per candidate row. Fine at seed scale; `EXPLAIN` the market-list and feed queries to confirm, and remember §4's note about swapping to a join-based policy if row counts grow.
 - **Cascade chains.** `ON DELETE CASCADE` from `leagues`/`circles` reaches markets → positions → comments → reactions → history. Verify a league/circle delete cleans all of it with no orphans, and — critically — that it never reaches *public* or *other-tier* rows.
 
