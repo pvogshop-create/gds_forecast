@@ -62,7 +62,7 @@ Six things found while reading that are wrong in the repo today. Each is fixed i
 | 2 | Spec §10.7 verification blocks numbered one behind §7; following them tests each migration with the wrong checklist | Step 1 |
 | 3 | CLAUDE.md says 0023 deletes `/dashboard/trending` — that's the home feed, 9 files redirect to it, and it never filters by category | Step 1 |
 | 4 | CLAUDE.md + spec §10.5 say to regenerate `src/types/database.ts` — it's hand-written, and `gen types` would break every import | Step 1 |
-| 5 | Six dev/test leagues still in prod ("Test 1"–"Test 4", duplicate "Forecasters", "Fantasy leauge") | Step 7c |
+| 5 | ~~Six dev/test leagues still in prod~~ — actually **seven** (two rows both named "Test 2"). All deleted 2026-07-30; `positions` unchanged at 20, so no bet history was lost | ✅ Step 7c |
 | 6 | "Edit profile" button links to `/profile/[username]/edit`, which has no route — every user has a 404 button on their own profile | Step 19 |
 
 ---

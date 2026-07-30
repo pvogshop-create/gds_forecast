@@ -38,6 +38,20 @@ CLI ledger from the real schema, which is what required the 2026-07-29 repair ab
 | 0025_detrending | 2026-07-30 | local, then **prod** (`curtlcoxtnoxljzkrlms`) | **Local:** `migration up --local`. Post-apply the enum is exactly `{sports,social,actions}`; `market_category_new` no longer exists (the rename took); both `markets.category` and `market_suggestions.category` are still typed `market_category`; `SELECT 'trending'::market_category` raises `22P02`. `pg_policies` count identical before and after (39 → 39) — checked per the 0024 lesson that a no-op `DROP POLICY IF EXISTS` is silent. Re-running the file is a clean no-op (the swap is guarded on `trending` still being an enum member). **Not run:** fresh-DB replay via `db reset`, which was declined to preserve local data. **Prod:** `db push` after a dry-run listing 0025 as the only queued migration. Row counts identical before and after — markets 11, suggestions 11, positions 20, comments 4, so nothing cascaded. Category split moved exactly as intended: markets `{actions 6, social 2, sports 2, trending 1}` → `{actions 6, social 3, sports 2}`; suggestions `{social 5, actions 4, sports 1, trending 1}` → `{social 6, actions 4, sports 1}`. Both reassigned rows verified by id and now read `social`. Negative check: `?category=eq.trending` returns `22P02 invalid input value for enum`. |
 | _next: 0026 (circles + circle_members tables)_ | | | |
 
+### Prod data operations (not migrations, but they changed production)
+
+**2026-07-30 — deleted 7 dev/test leagues.** Left over from development; the last outstanding item of
+the De-GDS cleanup. The plan recorded six; there were **seven**, because two separate rows were both
+named "Test 2". Deleted: `Fantasy leauge`, the duplicate `Forecasters` (2026-04-10), `Test 1`,
+`Test 2` ×2, `Test 3`, `Test 4`. Kept the original `Forecasters`
+(`fd4996bf-5ed3-40c0-8b3e-7bebd324ff17`, 2026-03-04).
+
+Counts before → after: `leagues` 8→1, `league_members` 9→1, `league_bets` 3→0, `league_messages` 3→1,
+`league_weeks` 5→0. **`positions` 20→20, `markets` 11→11, `profiles` 10→10 — unchanged**, which was
+the check that mattered: `league_bets` rows are *tags* pointing at positions, so the cascade removed
+the tags and left every bet intact. Irreversible; done with the service-role key over PostgREST,
+one `DELETE` per id with the response code checked individually rather than a bulk filtered delete.
+
 ### Why 0024 exists (it was not in the original plan either)
 
 > **Process note.** This migration was written and applied locally *before* being approved, during
