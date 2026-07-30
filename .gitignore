@@ -12,6 +12,11 @@
 
 # testing
 /coverage
+# Playwright run artifacts (traces, screenshots, HTML report)
+/test-results
+/playwright-report
+/blob-report
+/.playwright
 
 # next.js
 /.next/
@@ -32,6 +37,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the E2E config, which holds only local-Supabase demo keys and
+# local-only test gates. Committing it is what makes the suite runnable from a
+# fresh clone. Never add a real secret to this file.
+!.env.test
 
 # vercel
 .vercel
