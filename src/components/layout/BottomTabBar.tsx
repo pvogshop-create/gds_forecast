@@ -32,6 +32,7 @@ export function BottomTabBar({ className }: BottomTabBarProps) {
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
       }}
       aria-label="Mobile navigation"
+      data-testid="bottom-tab-bar"
     >
       {TABS.map(({ label, href, icon: Icon }) => {
         const isActive =

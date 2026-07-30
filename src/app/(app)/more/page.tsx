@@ -275,6 +275,9 @@ export default async function MorePage({
           return (
             <Link
               key={id}
+              data-testid="more-tab"
+              data-tab={id}
+              data-active={isActive}
               href={`/more?tab=${id}`}
               className="flex items-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium transition-all duration-150 flex-1 justify-center whitespace-nowrap"
               style={{
@@ -443,6 +446,8 @@ export default async function MorePage({
                   <span
                     className="min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
                     style={{ backgroundColor: "var(--color-danger)" }}
+                    data-testid="alerts-unread-badge"
+                    data-unread={unreadCount}
                   >
                     {unreadCount}
                   </span>
@@ -452,6 +457,7 @@ export default async function MorePage({
                 <form action={markAllNotificationsRead}>
                   <button
                     type="submit"
+                    data-testid="mark-all-read"
                     className="text-xs transition-colors duration-150"
                     style={{ color: "var(--color-primary)" }}
                   >
@@ -476,6 +482,9 @@ export default async function MorePage({
                 {notifications.map((notif, index) => (
                   <li
                     key={notif.id}
+                    data-testid="notification-item"
+                    data-type={notif.type}
+                    data-read={notif.is_read}
                     className="px-4 py-3 transition-colors duration-150"
                     style={{
                       backgroundColor: notif.is_read

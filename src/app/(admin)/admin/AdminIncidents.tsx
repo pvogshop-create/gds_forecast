@@ -85,6 +85,9 @@ function IncidentRow({
 
   return (
     <div
+      data-testid="admin-incident-row"
+      data-report-id={report.id}
+      data-status={report.status}
       className="rounded-lg p-4"
       style={{
         backgroundColor: "var(--color-bg)",
@@ -144,6 +147,7 @@ function IncidentRow({
           >
             <button
               type="submit"
+              data-testid="admin-resolve-now"
               disabled={isPending}
               className="px-3 py-1.5 rounded text-xs font-semibold text-white transition-all duration-150"
               style={{
@@ -163,6 +167,7 @@ function IncidentRow({
           >
             <button
               type="submit"
+              data-testid="admin-veto"
               disabled={isPending}
               className="px-3 py-1.5 rounded text-xs font-semibold transition-all duration-150"
               style={{

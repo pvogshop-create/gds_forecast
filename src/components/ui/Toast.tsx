@@ -55,6 +55,7 @@ export function ToastContainer() {
       className="fixed bottom-24 lg:bottom-6 right-4 z-50 flex flex-col gap-2"
       aria-live="polite"
       aria-label="Notifications"
+      data-testid="toast-container"
     >
       {currentToasts.map((t) => (
         <ToastItem
@@ -99,6 +100,8 @@ function ToastItem({ toast: t, onDismiss }: ToastItemProps) {
         bgColors[t.type]
       )}
       role="alert"
+      data-testid="toast"
+      data-toast-type={t.type}
       style={{ animation: "toast-in 0.2s ease" }}
     >
       <span className="mt-0.5 flex-shrink-0">{icons[t.type]}</span>

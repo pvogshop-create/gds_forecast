@@ -69,6 +69,7 @@ export function CreateLeagueButton({ userId }: CreateLeagueButtonProps) {
       <Button
         variant="primary"
         size="sm"
+        data-testid="create-league-open"
         onClick={() => setIsOpen(true)}
       >
         <Plus size={14} strokeWidth={2.5} />
@@ -91,6 +92,7 @@ export function CreateLeagueButton({ userId }: CreateLeagueButtonProps) {
             </label>
             <input
               id="league-name"
+              data-testid="create-league-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -141,6 +143,7 @@ export function CreateLeagueButton({ userId }: CreateLeagueButtonProps) {
             </label>
             <input
               id="league-buy-in"
+              data-testid="create-league-buy-in"
               type="number"
               min={10}
               max={500}
@@ -173,6 +176,7 @@ export function CreateLeagueButton({ userId }: CreateLeagueButtonProps) {
             </label>
             <input
               id="league-week-start"
+              data-testid="create-league-week-start"
               type="datetime-local"
               value={weekStart}
               onChange={(e) => setWeekStart(e.target.value)}
@@ -207,6 +211,7 @@ export function CreateLeagueButton({ userId }: CreateLeagueButtonProps) {
               variant="primary"
               size="md"
               className="flex-1"
+              data-testid="create-league-submit"
               isLoading={isLoading}
               disabled={!name.trim() || !weekStart}
             >

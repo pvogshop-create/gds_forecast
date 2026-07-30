@@ -124,6 +124,7 @@ export function SuggestForm({ userId }: SuggestFormProps) {
           </label>
           <input
             id="suggest-title"
+            data-testid="suggest-title"
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -156,6 +157,7 @@ export function SuggestForm({ userId }: SuggestFormProps) {
           </label>
           <textarea
             id="suggest-description"
+            data-testid="suggest-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder={
@@ -188,6 +190,9 @@ export function SuggestForm({ userId }: SuggestFormProps) {
               <button
                 key={cat.value}
                 type="button"
+                data-testid="suggest-category"
+                data-category={cat.value}
+                data-selected={category === cat.value}
                 onClick={() => setCategory(cat.value)}
                 className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150"
                 style={{
@@ -296,6 +301,7 @@ export function SuggestForm({ userId }: SuggestFormProps) {
             </label>
             <input
               id="suggest-line"
+              data-testid="suggest-line"
               type="text"
               value={lineInput}
               onChange={(e) => setLineInput(e.target.value)}
@@ -418,6 +424,7 @@ export function SuggestForm({ userId }: SuggestFormProps) {
 
         <Button
           type="submit"
+          data-testid="suggest-submit"
           variant="primary"
           size="md"
           className="w-full"

@@ -184,6 +184,7 @@ export function BettingPanel({
           backgroundColor: "var(--color-bg)",
           border: "1px solid var(--color-border)",
         }}
+        data-testid="betting-panel-closed"
       >
         <p
           className="text-sm"
@@ -209,6 +210,8 @@ export function BettingPanel({
         border: "1px solid var(--color-border)",
         boxShadow: "var(--shadow-card)",
       }}
+      data-testid="betting-panel"
+      data-market-status={market.status}
     >
       {/* Header */}
       <div
@@ -226,7 +229,7 @@ export function BettingPanel({
           style={{ color: "var(--color-ink-tertiary)" }}
         >
           Balance:{" "}
-          <span style={{ color: "var(--color-coin)" }}>
+          <span style={{ color: "var(--color-coin)" }} data-testid="bet-balance" data-coins={balance}>
             {formatCoins(balance)} coins
           </span>
           {isOU && market.ou_line !== null && (
@@ -248,6 +251,8 @@ export function BettingPanel({
         {isCalibrating && (
           <div
             className="rounded-lg px-3 py-2 text-xs"
+            data-testid="calibration-banner"
+            data-effective-max={effectiveMax}
             style={{
               backgroundColor: "rgba(245,158,11,0.1)",
               border: "1px solid rgba(245,158,11,0.3)",
@@ -300,6 +305,8 @@ export function BettingPanel({
             return (
               <button
                 key={side}
+                data-testid={`bet-side-${side}`}
+                data-selected={isSelected}
                 onClick={() => setSelectedSide(side)}
                 className={cn(
                   "flex flex-col items-center py-3 rounded-xl font-bold text-sm transition-all duration-150",
@@ -348,6 +355,8 @@ export function BettingPanel({
             {PRESET_AMOUNTS.map((amount) => (
               <button
                 key={amount}
+                data-testid="bet-preset"
+                data-amount={amount}
                 onClick={() => setCoinInput(amount.toString())}
                 disabled={amount > balance || amount > effectiveMax}
                 className={cn(
@@ -399,6 +408,7 @@ export function BettingPanel({
                 }`,
                 color: "var(--color-ink-primary)",
               }}
+              data-testid="bet-amount-input"
               aria-label="Bet amount in coins"
               aria-describedby={
                 validation && !validation.valid ? "bet-error" : undefined
@@ -409,6 +419,7 @@ export function BettingPanel({
           {validation && !validation.valid && (
             <p
               id="bet-error"
+              data-testid="bet-error"
               className="text-xs mt-1"
               style={{ color: "var(--color-danger)" }}
               role="alert"
@@ -426,6 +437,7 @@ export function BettingPanel({
             <div
               className="rounded-lg px-3 py-2.5 space-y-1"
               style={{ backgroundColor: "var(--color-bg)" }}
+              data-testid="bet-preview"
             >
               <div className="flex justify-between text-xs">
                 <span style={{ color: "var(--color-ink-tertiary)" }}>
@@ -456,6 +468,8 @@ export function BettingPanel({
                 <span
                   className="font-semibold"
                   style={{ color: "var(--color-primary)" }}
+                  data-testid="bet-preview-payout"
+                  data-payout={previewPayout}
                 >
                   {formatCoins(previewPayout)} coins
                 </span>
@@ -468,6 +482,7 @@ export function BettingPanel({
           <div
             className="rounded-lg px-3 py-2.5 space-y-1"
             style={{ backgroundColor: "var(--color-bg)" }}
+            data-testid="bet-preview"
           >
             <div className="flex justify-between text-xs">
               <span style={{ color: "var(--color-ink-tertiary)" }}>
@@ -487,6 +502,8 @@ export function BettingPanel({
               <span
                 className="font-medium"
                 style={{ color: "var(--color-ink-primary)" }}
+                data-testid="bet-preview-new-line"
+                data-line={ouNewLine}
               >
                 {ouNewLine} {market.ou_unit}
               </span>
@@ -498,6 +515,8 @@ export function BettingPanel({
               <span
                 className="font-semibold"
                 style={{ color: "var(--color-primary)" }}
+                data-testid="bet-preview-payout"
+                data-payout={ouPreviewPayout}
               >
                 {formatCoins(ouPreviewPayout)} coins
               </span>
@@ -514,6 +533,7 @@ export function BettingPanel({
               color: "var(--color-yes)",
             }}
             role="status"
+            data-testid="bet-success"
           >
             {isOU
               ? `✓ Bet placed ${sideLabel} ${(successResult as PlaceOuBetResult).ou_line_at_bet}! New line: ${(successResult as PlaceOuBetResult).new_line} ${market.ou_unit}`
@@ -544,6 +564,7 @@ export function BettingPanel({
                 color: selectedLeagueId ? "var(--color-ink-primary)" : "var(--color-ink-tertiary)",
               }}
               aria-label="Tag bet to a league"
+              data-testid="bet-league-select"
             >
               <option value="">— Don&apos;t tag —</option>
               {activeLeagueWeeks.map((lw) => (
@@ -561,6 +582,7 @@ export function BettingPanel({
           size="lg"
           className="w-full"
           onClick={handleBet}
+          data-testid="bet-submit"
           isLoading={isLoading}
           disabled={!coinInput || (!!validation && !validation.valid)}
         >

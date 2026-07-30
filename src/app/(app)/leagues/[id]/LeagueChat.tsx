@@ -153,6 +153,7 @@ export function LeagueChat({
             return (
               <div
                 key={msg.id}
+                data-testid="league-chat-message"
                 className={`flex items-end gap-2 ${isMe ? "flex-row-reverse" : ""}`}
               >
                 {!isMe && (
@@ -219,6 +220,7 @@ export function LeagueChat({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Send a message…"
+            data-testid="league-chat-input"
             maxLength={500}
             className="flex-1 px-3 py-2 rounded-lg text-sm outline-none transition-all duration-150"
             style={{
@@ -246,6 +248,7 @@ export function LeagueChat({
                 !input.trim() || isPending ? "not-allowed" : "pointer",
             }}
             aria-label="Send message"
+            data-testid="league-chat-send"
           >
             <Send size={14} />
           </button>

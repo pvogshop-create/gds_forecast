@@ -266,6 +266,8 @@ export function MarketComments({
       {/* Comment list */}
       <div
         ref={listRef}
+        data-testid="comments-list"
+        data-count={comments.length}
         className="overflow-y-auto px-4 py-3 space-y-3"
         style={{ maxHeight: "20rem", scrollBehavior: "smooth" }}
       >
@@ -274,7 +276,7 @@ export function MarketComments({
             className="text-xs text-center py-8"
             style={{ color: "var(--color-ink-tertiary)" }}
           >
-            No comments yet. Be the first!
+            <span data-testid="comments-empty">No comments yet. Be the first!</span>
           </p>
         ) : (
           comments.map((comment) => {
@@ -288,6 +290,9 @@ export function MarketComments({
             return (
               <div
                 key={comment.id}
+                data-testid="comment"
+                data-comment-id={comment.id}
+                data-mine={isMe}
                 className={`flex items-end gap-2 group ${isMe ? "flex-row-reverse" : ""}`}
                 style={{ opacity: isDeleting ? 0.5 : 1 }}
               >
@@ -332,6 +337,7 @@ export function MarketComments({
                         className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-1 rounded"
                         style={{ color: "var(--color-danger)" }}
                         aria-label="Delete comment"
+                        data-testid="comment-delete"
                         title="Delete comment"
                       >
                         <Trash2 size={10} />
@@ -362,6 +368,7 @@ export function MarketComments({
             className="text-xs px-4 pt-2"
             style={{ color: "var(--color-danger)" }}
             role="alert"
+            data-testid="comment-error"
           >
             {error}
           </p>
@@ -370,6 +377,7 @@ export function MarketComments({
         {/* @mention autocomplete dropdown */}
         {suggestionsOpen && suggestions.length > 0 && (
           <div
+            data-testid="mention-dropdown"
             className="absolute bottom-full left-3 right-3 mb-1 rounded-xl overflow-hidden z-10"
             style={{
               backgroundColor: "var(--color-bg-card)",
@@ -380,6 +388,8 @@ export function MarketComments({
             {suggestions.map((s) => (
               <button
                 key={s.username}
+                data-testid="mention-option"
+                data-username={s.username ?? ""}
                 type="button"
                 onMouseDown={(e) => {
                   // Use mousedown instead of click so it fires before the input's blur
@@ -425,6 +435,7 @@ export function MarketComments({
               setTimeout(closeSuggestions, 150);
             }}
             placeholder="Add a comment… use @username to tag someone"
+            data-testid="comment-input"
             maxLength={500}
             className="flex-1 px-3 py-2 rounded-lg text-sm outline-none transition-all duration-150"
             style={{
@@ -451,6 +462,7 @@ export function MarketComments({
               cursor: !input.trim() || isPending ? "not-allowed" : "pointer",
             }}
             aria-label="Post comment"
+            data-testid="comment-submit"
           >
             <Send size={14} />
           </button>

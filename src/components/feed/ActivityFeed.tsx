@@ -8,7 +8,10 @@ interface ActivityFeedProps {
 export function ActivityFeed({ entries }: ActivityFeedProps) {
   if (entries.length === 0) {
     return (
-      <div className="flex flex-col items-center py-12 px-4 text-center">
+      <div
+        className="flex flex-col items-center py-12 px-4 text-center"
+        data-testid="activity-feed-empty"
+      >
         <div className="text-3xl mb-2">📭</div>
         <p
           className="text-sm font-medium"
@@ -27,9 +30,14 @@ export function ActivityFeed({ entries }: ActivityFeedProps) {
   }
 
   return (
-    <ul className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+    <ul
+      className="divide-y"
+      style={{ borderColor: "var(--color-border)" }}
+      data-testid="activity-feed"
+      data-count={entries.length}
+    >
       {entries.map((entry) => (
-        <li key={entry.id}>
+        <li key={entry.id} data-testid="activity-feed-item">
           <ActivityFeedItem entry={entry} />
         </li>
       ))}

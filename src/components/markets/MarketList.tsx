@@ -24,6 +24,7 @@ export function MarketList({
           backgroundColor: "var(--color-bg-card)",
           border: "1px solid var(--color-border)",
         }}
+        data-testid="market-list-empty"
       >
         <div className="text-4xl mb-3">📊</div>
         <p
@@ -43,7 +44,7 @@ export function MarketList({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-testid="market-list" data-count={markets.length}>
       {markets.map((market) => (
         <MarketCard
           key={market.id}

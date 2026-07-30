@@ -98,7 +98,7 @@ export function Sidebar({ profile, className, isAdmin }: SidebarProps) {
       </div>
 
       {/* Main navigation */}
-      <nav className="px-3 pb-2" aria-label="Main navigation">
+      <nav className="px-3 pb-2" aria-label="Main navigation" data-testid="sidebar-nav-main">
         {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
           const isActive = pathname.startsWith(href);
           return (
@@ -142,7 +142,7 @@ export function Sidebar({ profile, className, isAdmin }: SidebarProps) {
       />
 
       {/* Secondary navigation */}
-      <nav className="px-3 pt-2" aria-label="Secondary navigation">
+      <nav className="px-3 pt-2" aria-label="Secondary navigation" data-testid="sidebar-nav-secondary">
         {SECONDARY_NAV.map(({ label, href, icon: Icon }) => {
           const hrefPath = href.split("?")[0];
           const isActive = pathname === hrefPath || pathname.startsWith(hrefPath + "/");
@@ -263,6 +263,8 @@ export function Sidebar({ profile, className, isAdmin }: SidebarProps) {
           <span
             className="text-sm font-bold"
             style={{ color: "var(--color-ink-primary)" }}
+            data-testid="sidebar-coins"
+            data-coins={profile.coins}
           >
             {formatCoins(profile.coins)}
           </span>
@@ -271,6 +273,7 @@ export function Sidebar({ profile, className, isAdmin }: SidebarProps) {
         {/* Sign out */}
         <button
           onClick={handleSignOut}
+          data-testid="sidebar-signout"
           className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-medium transition-colors duration-150 hover:bg-[var(--color-no-bg)]"
           style={{ color: "var(--color-ink-tertiary)" }}
         >

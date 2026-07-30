@@ -46,6 +46,7 @@ export function ProbabilityChart({ history }: ProbabilityChartProps) {
           backgroundColor: "var(--color-bg)",
           color: "var(--color-ink-tertiary)",
         }}
+        data-testid="probability-chart-empty"
       >
         Not enough data yet — place the first bet!
       </div>
@@ -58,7 +59,7 @@ export function ProbabilityChart({ history }: ProbabilityChartProps) {
   }));
 
   return (
-    <div className="h-40">
+    <div className="h-40" data-testid="probability-chart" data-points={history.length}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
           data={data}

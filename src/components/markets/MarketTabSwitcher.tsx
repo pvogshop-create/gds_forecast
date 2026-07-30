@@ -12,8 +12,8 @@ export function MarketTabSwitcher({
   isCompleted,
 }: MarketTabSwitcherProps) {
   const tabs = [
-    { label: "Active", href: activeHref, selected: !isCompleted },
-    { label: "Completed", href: completedHref, selected: isCompleted },
+    { label: "Active", href: activeHref, selected: !isCompleted, id: "active" },
+    { label: "Completed", href: completedHref, selected: isCompleted, id: "completed" },
   ];
 
   return (
@@ -25,10 +25,12 @@ export function MarketTabSwitcher({
       }}
       aria-label="Market view"
     >
-      {tabs.map(({ label, href, selected }) => (
+      {tabs.map(({ label, href, selected, id }) => (
         <Link
           key={label}
           href={href}
+          data-testid={`market-tab-${id}`}
+          data-selected={selected}
           className="flex-1 text-center px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150"
           style={{
             backgroundColor: selected ? "var(--color-bg)" : "transparent",

@@ -85,7 +85,11 @@ export function MarketReactions({ marketId, currentUserId }: MarketReactionsProp
   if (!hasAnyReaction && !currentUserId) return null;
 
   return (
-    <div className="flex items-center gap-1 flex-wrap pt-2" style={{ borderTop: "1px solid var(--color-border)" }}>
+    <div
+      className="flex items-center gap-1 flex-wrap pt-2"
+      style={{ borderTop: "1px solid var(--color-border)" }}
+      data-testid="reactions"
+    >
       {reactions.map(({ emoji, count, reacted }) => (
         <button
           key={emoji}
@@ -102,6 +106,10 @@ export function MarketReactions({ marketId, currentUserId }: MarketReactionsProp
           }}
           aria-label={`React with ${emoji}${count > 0 ? `, ${count} reactions` : ""}`}
           aria-pressed={reacted}
+          data-testid="reaction-button"
+          data-emoji={emoji}
+          data-count={count}
+          data-reacted={reacted}
         >
           <span>{emoji}</span>
           {count > 0 && (

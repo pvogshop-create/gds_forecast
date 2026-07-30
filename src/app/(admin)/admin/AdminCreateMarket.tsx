@@ -115,6 +115,7 @@ export function AdminCreateMarket() {
             <input
               id="create-title"
               name="title"
+              data-testid="admin-create-title"
               type="text"
               required
               maxLength={150}
@@ -140,6 +141,7 @@ export function AdminCreateMarket() {
             <textarea
               id="create-desc"
               name="description"
+              data-testid="admin-create-description"
               required
               maxLength={500}
               rows={3}
@@ -170,6 +172,9 @@ export function AdminCreateMarket() {
                 <button
                   key={cat.value}
                   type="button"
+                  data-testid="admin-create-category"
+                  data-category={cat.value}
+                  data-selected={category === cat.value}
                   onClick={() => setCategory(cat.value)}
                   className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150"
                   style={{
@@ -410,6 +415,7 @@ export function AdminCreateMarket() {
             <input
               id="create-date"
               name="resolution_date"
+              data-testid="admin-create-resolution-date"
               type="date"
               className="w-full px-3 py-2.5 rounded-xl text-sm outline-none transition-all duration-150"
               style={{
@@ -426,6 +432,7 @@ export function AdminCreateMarket() {
               type="button"
               role="checkbox"
               aria-checked={isFeatured}
+              data-testid="admin-create-featured"
               onClick={() => setIsFeatured((v) => !v)}
               className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-all duration-150"
               style={{
@@ -464,6 +471,7 @@ export function AdminCreateMarket() {
 
           <Button
             type="submit"
+            data-testid="admin-create-submit"
             variant="primary"
             size="md"
             className="w-full"

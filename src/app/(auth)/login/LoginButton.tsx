@@ -64,7 +64,7 @@ export function LoginButton() {
           border: "1px solid var(--color-primary)",
         }}
       >
-        <p className="text-2xl">📬</p>
+        <p className="text-2xl" data-testid="login-sent">📬</p>
         <p className="text-sm font-semibold" style={{ color: "var(--color-primary)" }}>
           Check your email
         </p>
@@ -93,6 +93,7 @@ export function LoginButton() {
           if (mode === "error") setMode("idle");
         }}
         placeholder="you@email.com"
+        data-testid="login-email"
         autoComplete="email"
         autoFocus
         className="w-full px-4 py-3 rounded-xl text-sm outline-none transition-all duration-150"
@@ -103,12 +104,13 @@ export function LoginButton() {
         }}
       />
       {mode === "error" && (
-        <p className="text-xs" style={{ color: "var(--color-danger)" }} role="alert">
+        <p className="text-xs" style={{ color: "var(--color-danger)" }} role="alert" data-testid="login-error">
           {errorMsg}
         </p>
       )}
       <button
         type="submit"
+        data-testid="login-submit"
         disabled={mode === "loading"}
         className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold text-sm text-white transition-all duration-200"
         style={{

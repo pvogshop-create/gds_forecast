@@ -199,6 +199,7 @@ export default async function MarketPage({
         )}
 
         <h1
+          data-testid="market-title"
           className="text-xl font-bold leading-snug mb-2"
           style={{ color: "var(--color-ink-primary)" }}
         >
@@ -319,6 +320,8 @@ export default async function MarketPage({
                   <p
                     className="text-3xl font-bold"
                     style={{ color: "var(--color-yes)" }}
+                    data-testid="market-stat-yes"
+                    data-probability={yesProb}
                   >
                     {formatProbability(yesProb)}
                   </p>
@@ -333,7 +336,7 @@ export default async function MarketPage({
                   className="text-center"
                   style={{ color: "var(--color-ink-tertiary)" }}
                 >
-                  <p className="text-sm font-medium">
+                  <p className="text-sm font-medium" data-testid="market-volume" data-volume={Math.round(totalPool)}>
                     {formatCoins(Math.round(totalPool))} coins wagered
                   </p>
                   {market.resolution_date && (
@@ -441,6 +444,7 @@ export default async function MarketPage({
               <h2
                 className="text-sm font-semibold"
                 style={{ color: "var(--color-ink-primary)" }}
+                data-testid="incident-widget"
               >
                 Community Incident Report
               </h2>
@@ -453,7 +457,7 @@ export default async function MarketPage({
                   color: isPassed ? "var(--color-yes)" : "var(--color-primary)",
                 }}
               >
-                {isPassed ? "PASSED" : "VOTING"}
+                <span data-testid="incident-status">{isPassed ? "PASSED" : "VOTING"}</span>
               </span>
             </div>
             <div className="px-4 py-3">
@@ -494,6 +498,9 @@ export default async function MarketPage({
                 <p
                   className="text-xs mt-1"
                   style={{ color: "var(--color-ink-tertiary)" }}
+                  data-testid="incident-votes"
+                  data-yes={activeIncident.yes_votes}
+                  data-no={activeIncident.no_votes}
                 >
                   {total === 0
                     ? "No votes yet"

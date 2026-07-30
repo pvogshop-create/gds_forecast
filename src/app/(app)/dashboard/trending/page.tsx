@@ -163,18 +163,21 @@ export default async function TrendingPage({
 
   const statCards = [
     hotStreakUser && {
+      id: "hot",
       emoji: "🔥",
       label: "Hot Streak",
       user: hotStreakUser,
       stat: `${hotStreakUser.win_streak} wins in a row`,
     },
     coldStreakUser && {
+      id: "cold",
       emoji: "🥶",
       label: "Cold Streak",
       user: coldStreakUser,
       stat: `${coldStreakUser.loss_streak} losses in a row`,
     },
     weeklyEarner && {
+      id: "week",
       emoji: "💰",
       label: "Week's Best",
       user: {
@@ -186,6 +189,7 @@ export default async function TrendingPage({
       stat: `+${formatCoins(weeklyEarner.weekly_earned)} this week`,
     },
   ].filter(Boolean) as {
+    id: string;
     emoji: string;
     label: string;
     user: {
@@ -258,6 +262,7 @@ export default async function TrendingPage({
             {statCards.map((card) => (
               <div
                 key={card.label}
+                data-testid={`stat-leader-${card.id}`}
                 className="flex-1 flex flex-col items-center gap-1 py-3 px-2"
                 style={{ borderColor: "var(--color-border)" }}
               >

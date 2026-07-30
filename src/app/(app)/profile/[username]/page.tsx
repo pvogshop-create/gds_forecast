@@ -103,7 +103,7 @@ export default async function ProfilePage({ params }: ProfilePageProps) {
               className="text-sm"
               style={{ color: "var(--color-ink-secondary)" }}
             >
-              @{profile.username}
+              <span data-testid="profile-username">@{profile.username}</span>
             </p>
 
             {isOwnProfile && (
@@ -125,23 +125,27 @@ export default async function ProfilePage({ params }: ProfilePageProps) {
         <div className="grid grid-cols-3 gap-3 mt-4">
           {[
             {
+              id: "coins",
               label: "Coins",
               value: formatCoins(profile.coins),
               color: "var(--color-coin)",
             },
             {
+              id: "winrate",
               label: "Win rate",
               value: formatWinRate(profile.wins, profile.total_bets),
               color: "var(--color-primary)",
             },
             {
+              id: "bets",
               label: "Total bets",
               value: profile.total_bets.toString(),
               color: "var(--color-ink-primary)",
             },
-          ].map(({ label, value, color }) => (
+          ].map(({ id, label, value, color }) => (
             <div
               key={label}
+              data-testid={`profile-stat-${id}`}
               className="rounded-xl p-3 text-center"
               style={{ backgroundColor: "var(--color-bg)" }}
             >

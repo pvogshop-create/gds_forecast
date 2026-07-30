@@ -10,7 +10,13 @@ interface LeagueCardProps {
 
 export function LeagueCard({ league, memberCount = 0, userRank }: LeagueCardProps) {
   return (
-    <Link href={`/leagues/${league.id}`} className="block group">
+    <Link
+      href={`/leagues/${league.id}`}
+      className="block group"
+      data-testid="league-card"
+      data-league-id={league.id}
+      data-member-count={memberCount}
+    >
       <div
         className="rounded-xl p-4 transition-all duration-200 hover:shadow-[var(--shadow-card-hover)]"
         style={{

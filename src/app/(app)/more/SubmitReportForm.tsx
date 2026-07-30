@@ -123,6 +123,7 @@ export function SubmitReportForm({ markets }: SubmitReportFormProps) {
               Market
             </label>
             <select
+              data-testid="report-market-select"
               id="report-market"
               value={selectedMarketId}
               onChange={(e) => handleMarketChange(e.target.value)}
@@ -227,6 +228,7 @@ export function SubmitReportForm({ markets }: SubmitReportFormProps) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Describe the event with enough detail for others to verify."
+              data-testid="report-description"
               rows={3}
               maxLength={500}
               className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none transition-all duration-150"
@@ -252,6 +254,7 @@ export function SubmitReportForm({ markets }: SubmitReportFormProps) {
 
           <button
             type="submit"
+            data-testid="report-submit"
             disabled={!isValid || isPending}
             className="w-full py-2.5 px-4 rounded-lg text-sm font-semibold text-white transition-all duration-150"
             style={{

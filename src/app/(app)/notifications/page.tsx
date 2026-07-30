@@ -85,6 +85,8 @@ export default async function NotificationsPage() {
                 <span
                   className="min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
                   style={{ backgroundColor: "var(--color-danger)" }}
+                  data-testid="alerts-unread-badge"
+                  data-unread={unreadCount}
                 >
                   {unreadCount}
                 </span>
@@ -94,6 +96,7 @@ export default async function NotificationsPage() {
               <form action={markAllNotificationsRead}>
                 <button
                   type="submit"
+                  data-testid="mark-all-read"
                   className="text-xs transition-colors duration-150"
                   style={{ color: "var(--color-primary)" }}
                 >
@@ -118,6 +121,9 @@ export default async function NotificationsPage() {
               {notifications.map((notif, index) => (
                 <li
                   key={notif.id}
+                  data-testid="notification-item"
+                  data-type={notif.type}
+                  data-read={notif.is_read}
                   className="px-4 py-3 transition-colors duration-150"
                   style={{
                     backgroundColor: notif.is_read

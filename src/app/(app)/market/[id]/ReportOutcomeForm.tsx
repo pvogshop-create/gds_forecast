@@ -83,6 +83,7 @@ export function ReportOutcomeForm({
       }}
     >
       <button
+        data-testid="report-outcome-toggle"
         onClick={() => setOpen((prev) => !prev)}
         className="w-full px-4 py-3 flex items-center justify-between text-left transition-colors duration-150 hover:bg-[var(--color-bg-hover)]"
         aria-expanded={open}
@@ -129,6 +130,7 @@ export function ReportOutcomeForm({
                 <button
                   key={o}
                   type="button"
+                  data-testid={`report-outcome-${o}`}
                   onClick={() => setOutcome(o)}
                   className="flex-1 py-2 rounded-lg text-sm font-semibold transition-all duration-150"
                   style={{
@@ -197,6 +199,7 @@ export function ReportOutcomeForm({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Describe the event with enough detail for others to verify."
+              data-testid="report-description"
               rows={3}
               maxLength={500}
               className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none transition-all duration-150"
@@ -226,6 +229,7 @@ export function ReportOutcomeForm({
 
           <button
             type="submit"
+            data-testid="report-submit"
             disabled={!isValid || isPending}
             className="w-full py-2.5 px-4 rounded-lg text-sm font-semibold text-white transition-all duration-150"
             style={{

@@ -55,6 +55,11 @@ export function MarketCard({
         border: "1px solid var(--color-border)",
         boxShadow: "var(--shadow-card)",
       }}
+      data-testid="market-card"
+      data-market-id={market.id}
+      data-market-status={market.status}
+      data-market-category={market.category}
+      data-market-type={market.market_type}
     >
       {/* Header row: category badge + meta */}
       <div className="flex items-center justify-between mb-2.5">
@@ -113,8 +118,9 @@ export function MarketCard({
       </div>
 
       {/* Title */}
-      <Link href={`/market/${market.id}`} className="block group">
+      <Link href={`/market/${market.id}`} className="block group" data-testid="market-card-link">
         <h3
+          data-testid="market-card-title"
           className="font-semibold text-sm leading-snug mb-1.5 group-hover:underline"
           style={{ color: "var(--color-ink-primary)", textDecorationColor: "var(--color-primary)" }}
         >
@@ -159,7 +165,7 @@ export function MarketCard({
         ) : (
           <>
           <div className="flex justify-between text-xs mb-1">
-            <span style={{ color: "var(--color-yes)" }}>{Math.round(yesProb * 100)}% YES</span>
+            <span style={{ color: "var(--color-yes)" }} data-testid="market-card-probability" data-probability={yesProb}>{Math.round(yesProb * 100)}% YES</span>
             <span style={{ color: "var(--color-no)" }}>{Math.round((1 - yesProb) * 100)}% NO</span>
           </div>
           <div
@@ -197,14 +203,14 @@ export function MarketCard({
             style={{ color: "var(--color-ink-tertiary)" }}
           >
             <TrendingUp size={11} strokeWidth={2} />
-            <span>{formatCoins(Math.round(totalPool))} coins</span>
+            <span data-testid="market-card-volume" data-volume={Math.round(totalPool)}>{formatCoins(Math.round(totalPool))} coins</span>
           </div>
         </div>
 
         {/* Bet buttons */}
         {!isResolved && market.status === "open" ? (
           <div className="flex gap-2">
-            <Link href={`/market/${market.id}?side=yes`}>
+            <Link href={`/market/${market.id}?side=yes`} data-testid="market-card-bet-yes">
               <button
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all duration-150 hover:scale-105 active:scale-95"
                 style={{
@@ -226,7 +232,7 @@ export function MarketCard({
                 </span>
               </button>
             </Link>
-            <Link href={`/market/${market.id}?side=no`}>
+            <Link href={`/market/${market.id}?side=no`} data-testid="market-card-bet-no">
               <button
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all duration-150 hover:scale-105 active:scale-95"
                 style={{

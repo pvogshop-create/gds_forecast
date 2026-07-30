@@ -150,6 +150,9 @@ export default async function AdminPage({
           return (
             <Link
               key={t.id}
+              data-testid="admin-tab"
+              data-tab={t.id}
+              data-active={isActive}
               href={`/admin?tab=${t.id}`}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150 flex-1 justify-center"
               style={{

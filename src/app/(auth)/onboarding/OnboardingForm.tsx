@@ -103,6 +103,7 @@ export function OnboardingForm({ userId, displayName }: OnboardingFormProps) {
           border: `1px solid ${error ? "var(--color-danger)" : "var(--color-border)"}`,
           color: "var(--color-ink-primary)",
         }}
+        data-testid="onboarding-username"
         aria-describedby={error ? "username-error" : undefined}
         aria-invalid={!!error}
       />
@@ -111,6 +112,7 @@ export function OnboardingForm({ userId, displayName }: OnboardingFormProps) {
       {error && (
         <p
           id="username-error"
+          data-testid="onboarding-error"
           className="text-xs mb-3"
           style={{ color: "var(--color-danger)" }}
           role="alert"
@@ -137,6 +139,7 @@ export function OnboardingForm({ userId, displayName }: OnboardingFormProps) {
 
       <button
         type="submit"
+        data-testid="onboarding-submit"
         disabled={!isValid || isLoading}
         className="w-full py-3 px-4 rounded-xl font-semibold text-sm transition-all duration-200"
         style={{

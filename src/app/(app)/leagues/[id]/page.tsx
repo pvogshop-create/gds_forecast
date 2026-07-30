@@ -193,6 +193,7 @@ export default async function LeaguePage({
           <span
             className="font-mono font-bold text-sm tracking-widest flex-1"
             style={{ color: "var(--color-ink-primary)" }}
+            data-testid="league-invite-code"
           >
             {league.invite_code}
           </span>
@@ -210,12 +211,13 @@ export default async function LeaguePage({
         role="tablist"
       >
         {[
-          { label: "This Week", href: tabHref("weekly"), active: isWeeklyTab },
-          { label: "All-Time Standings", href: tabHref("standings"), active: !isWeeklyTab },
-        ].map(({ label, href, active }) => (
+          { label: "This Week", href: tabHref("weekly"), active: isWeeklyTab, id: "weekly" },
+          { label: "All-Time Standings", href: tabHref("standings"), active: !isWeeklyTab, id: "standings" },
+        ].map(({ label, href, active, id }) => (
           <a
             key={label}
             href={href}
+            data-testid={`league-tab-${id}`}
             role="tab"
             aria-selected={active}
             className="flex-1 text-center py-2 px-3 rounded-lg text-sm font-medium transition-all duration-150"
@@ -260,7 +262,7 @@ export default async function LeaguePage({
                     color: "var(--color-yes)",
                   }}
                 >
-                  Pool: {formatCoins(activeWeek.pool_coins)} coins
+                  <span data-testid="league-pool" data-pool={activeWeek.pool_coins}>Pool: {formatCoins(activeWeek.pool_coins)} coins</span>
                 </span>
                 <span
                   className="text-xs font-semibold px-2 py-0.5 rounded-full"
@@ -317,6 +319,9 @@ export default async function LeaguePage({
                 return (
                   <li
                     key={row.user_id}
+                    data-testid="weekly-standings-row"
+                    data-rank={index + 1}
+                    data-user-id={row.user_id}
                     className="flex items-center gap-3 px-4 py-3"
                     style={{
                       borderBottom:
@@ -443,6 +448,10 @@ export default async function LeaguePage({
                 return (
                   <li
                     key={member.user_id}
+                    data-testid="alltime-standings-row"
+                    data-rank={index + 1}
+                    data-user-id={member.user_id}
+                    data-total-points={member.total_points}
                     className="flex items-center gap-3 px-4 py-3"
                     style={{
                       borderBottom:

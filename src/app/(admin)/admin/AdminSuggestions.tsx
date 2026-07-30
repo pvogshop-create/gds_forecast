@@ -149,6 +149,8 @@ export function AdminSuggestions({ suggestions }: AdminSuggestionsProps) {
               return (
                 <div
                   key={s.id}
+                  data-testid="admin-suggestion-row"
+                  data-suggestion-id={s.id}
                   className="rounded-xl p-4"
                   style={{
                     backgroundColor: "var(--color-bg-card)",
@@ -328,6 +330,7 @@ export function AdminSuggestions({ suggestions }: AdminSuggestionsProps) {
                         value={rejectNote}
                         onChange={(e) => setRejectNote(e.target.value)}
                         placeholder="Rejection note (optional)"
+                        data-testid="admin-reject-note"
                         className="w-full px-3 py-2 rounded-lg text-sm outline-none"
                         style={{
                           backgroundColor: "var(--color-bg)",
@@ -343,6 +346,7 @@ export function AdminSuggestions({ suggestions }: AdminSuggestionsProps) {
                       variant="primary"
                       size="sm"
                       className="flex-1"
+                      data-testid="admin-approve"
                       onClick={() =>
                         handleApprove(s.id, s.suggested_yes_odds, s.market_type, s.ou_opening_line)
                       }

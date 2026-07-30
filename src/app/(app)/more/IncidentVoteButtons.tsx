@@ -61,6 +61,7 @@ export function IncidentVoteButtons({
           cursor: disabled && userVote !== true ? "not-allowed" : "pointer",
         }}
         aria-label="Agree — this incident happened"
+        data-testid="incident-vote-agree"
       >
         <ThumbsUp size={11} />
         Agree
@@ -79,6 +80,7 @@ export function IncidentVoteButtons({
           cursor: disabled && userVote !== false ? "not-allowed" : "pointer",
         }}
         aria-label="Disagree — this incident did not happen"
+        data-testid="incident-vote-disagree"
       >
         <ThumbsDown size={11} />
         Disagree

@@ -177,6 +177,9 @@ export function AdminMarkets({ markets }: AdminMarketsProps) {
               return (
                 <div
                   key={m.id}
+                  data-testid="admin-market-row"
+                  data-market-id={m.id}
+                  data-market-status={m.status}
                   className="rounded-xl p-4"
                   style={{
                     backgroundColor: "var(--color-bg-card)",
@@ -354,6 +357,7 @@ export function AdminMarkets({ markets }: AdminMarketsProps) {
                         value={lineInput}
                         onChange={(e) => setLineInput(e.target.value)}
                         placeholder="YES odds, e.g. +150 or -110"
+                        data-testid="admin-set-line-input"
                         className="w-full px-3 py-2 rounded-lg text-sm outline-none"
                         style={{
                           backgroundColor: "var(--color-bg)",
@@ -488,6 +492,7 @@ export function AdminMarkets({ markets }: AdminMarketsProps) {
                             variant="primary"
                             size="sm"
                             className="flex-1"
+                            data-testid="admin-set-line-confirm"
                             onClick={() => handleSetLineConfirm(m.id)}
                             isLoading={isPending}
                             disabled={!!lineInputError}
@@ -508,6 +513,7 @@ export function AdminMarkets({ markets }: AdminMarketsProps) {
                             variant="yes"
                             size="sm"
                             className="flex-1"
+                            data-testid="admin-resolve-yes"
                             onClick={() => handleResolveClick(m.id, "yes")}
                             isLoading={
                               isPending &&
@@ -523,6 +529,7 @@ export function AdminMarkets({ markets }: AdminMarketsProps) {
                             variant="no"
                             size="sm"
                             className="flex-1"
+                            data-testid="admin-resolve-no"
                             onClick={() => handleResolveClick(m.id, "no")}
                             isLoading={
                               isPending &&
@@ -544,6 +551,7 @@ export function AdminMarkets({ markets }: AdminMarketsProps) {
                                   m.status as "open" | "closed"
                                 )
                               }
+                              data-testid="admin-toggle-status"
                               isLoading={isPending && resolving === null}
                             >
                               {m.status === "open" ? "Close" : "Reopen"}
@@ -553,6 +561,7 @@ export function AdminMarkets({ markets }: AdminMarketsProps) {
                             <Button
                               variant="ghost"
                               size="sm"
+                              data-testid="admin-set-line-open"
                               onClick={() => handleSetLineOpen(m.id, yesOdds)}
                             >
                               Set Line

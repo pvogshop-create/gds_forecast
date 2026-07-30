@@ -23,6 +23,7 @@ export function Leaderboard({ users }: LeaderboardProps) {
         border: "1px solid var(--color-border)",
         boxShadow: "var(--shadow-card)",
       }}
+      data-testid="leaderboard"
     >
       <div
         className="px-4 py-3"
@@ -40,6 +41,10 @@ export function Leaderboard({ users }: LeaderboardProps) {
         {users.map((user, index) => (
           <li
             key={user.id}
+            data-testid="leaderboard-row"
+            data-rank={index + 1}
+            data-username={user.username ?? ""}
+            data-coins={user.coins}
             className="transition-colors duration-150 hover:bg-[var(--color-bg-hover)]"
             style={{
               borderBottom:

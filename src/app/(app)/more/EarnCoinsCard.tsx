@@ -116,14 +116,16 @@ export function EarnCoinsCard({
             className="text-xs"
             style={{ color: "var(--color-ink-tertiary)" }}
           >
+            <span data-testid="daily-bonus-status" data-can-claim={canClaim}>
             {claimAward !== null
               ? `+${formatCoins(claimAward)} coins added to your balance!`
               : canClaim
               ? "50–150 random coins, available now"
               : `Next claim in ${hoursLeft}h`}
+            </span>
           </p>
           {claimError && (
-            <p className="text-xs mt-0.5" style={{ color: "var(--color-danger)" }}>
+            <p className="text-xs mt-0.5" style={{ color: "var(--color-danger)" }} data-testid="daily-bonus-error">
               {claimError}
             </p>
           )}
@@ -131,6 +133,7 @@ export function EarnCoinsCard({
         {claimAward === null && (
           <button
             onClick={handleClaim}
+            data-testid="earn-coins-claim"
             disabled={!canClaim || isPending}
             className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150"
             style={{
@@ -188,7 +191,7 @@ export function EarnCoinsCard({
                   className="flex-1 text-xs truncate font-mono"
                   style={{ color: "var(--color-ink-secondary)" }}
                 >
-                  /login?ref={referralCode}
+                  <span data-testid="referral-link" data-code={referralCode}>/login?ref={referralCode}</span>
                 </span>
                 <button
                   onClick={handleCopy}
