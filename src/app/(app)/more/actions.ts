@@ -5,25 +5,13 @@ import { requireAuth } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 
 // ─── Daily Bonus ──────────────────────────────────────────────────────────────
-
-export async function claimDailyBonus(): Promise<{ award: number; coins_after: number }> {
-  const user = await requireAuth();
-  const supabase = await createClient();
-
-  const { data, error } = await supabase.rpc("claim_daily_bonus", {
-    p_user_id: user.id,
-  });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  // Do NOT call revalidatePath here — it triggers a full layout re-render
-  // (including requireOnboarding) in the server-action response context, which
-  // can crash. The EarnCoinsCard shows the award locally; the coin balance in
-  // the sidebar refreshes on the next navigation.
-  return data as { award: number; coins_after: number };
-}
+//
+// There is deliberately no claimDailyBonus action here. One existed, was never
+// imported by anything, and could not have worked if it had been: it used the
+// user-scoped client, and the `prevent_coin_manipulation` trigger rejects any
+// authenticated-role write to profiles.coins. The live path is
+// `POST /api/daily-bonus`, which uses the service-role client for exactly that
+// reason. Removed 2026-07-29 while building the E2E suite.
 
 // ─── Incident Reports ─────────────────────────────────────────────────────────
 

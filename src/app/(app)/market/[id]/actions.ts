@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAuth } from "@/lib/auth";
 
 const MENTION_RE = /(?<!\w)@(\w+)/g;
@@ -53,6 +54,16 @@ export async function postComment(
       .select("id, username")
       .in("username", uniqueMentions);
 
+    // Notifications must be written with the service-role client. The
+    // `notifications_insert_service_role` policy has
+    // `WITH CHECK (auth.role() = 'service_role')`, so an insert through the
+    // user-scoped client above is rejected — and because the result was never
+    // checked, that failure was silent: @-mention notifications had never once
+    // been delivered. Every other notification path in the app (the bet route,
+    // /api/daily-bonus, the admin actions) already uses the admin client for
+    // exactly this reason.
+    const admin = createAdminClient();
+
     for (const mentioned of mentionedProfiles ?? []) {
       // Don't notify yourself
       if (mentioned.id === user.id) continue;
@@ -62,13 +73,22 @@ export async function postComment(
           ? `${trimmed.slice(0, NOTIFICATION_PREVIEW_LEN)}…`
           : trimmed;
 
-      await supabase.from("notifications").insert({
+      const { error: notifyError } = await admin.from("notifications").insert({
         user_id: mentioned.id,
         type: "comment_mention",
         title: `@${commenterHandle} mentioned you in a comment`,
         body: preview,
         data: { market_id: marketId, comment_id: comment.id },
       });
+
+      // Non-fatal — the comment is already posted and must not be rolled back
+      // for a failed notification — but never silent again.
+      if (notifyError) {
+        console.error(
+          `[postComment] mention notification failed for ${mentioned.username}:`,
+          notifyError.message
+        );
+      }
     }
   }
 

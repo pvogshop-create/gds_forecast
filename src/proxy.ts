@@ -1,8 +1,26 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-// Routes that are accessible without authentication
-const PUBLIC_ROUTES = ["/login", "/api/auth"];
+// Test-only: unlocks POST /api/test/login for the Playwright suite. Never true
+// in production, and false unless E2E_TEST_SECRET is explicitly set. The route
+// itself applies the same gate and 404s, so this is defence in depth.
+const E2E_ENABLED =
+  process.env.NODE_ENV !== "production" && !!process.env.E2E_TEST_SECRET;
+
+// Routes that are accessible without authentication.
+//
+// `/api/cron` is here because Vercel cron invokes these routes with a
+// `Authorization: Bearer $CRON_SECRET` header and NO session cookie. Without
+// this entry the middleware 307-redirected every cron request to /login, so
+// neither scheduled job (league week rollover, incident auto-resolution) had
+// ever actually run. Both handlers authenticate the Bearer token themselves and
+// now hard-require CRON_SECRET, so they are not open by being reachable.
+const PUBLIC_ROUTES = [
+  "/login",
+  "/api/auth",
+  "/api/cron",
+  ...(E2E_ENABLED ? ["/api/test"] : []),
+];
 
 // Parsed once at module load — avoids per-request string splitting
 const ADMIN_EMAILS: ReadonlySet<string> = new Set(
