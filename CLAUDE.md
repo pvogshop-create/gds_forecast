@@ -112,40 +112,49 @@ or suggest it as an improvement. Conventional Commit messages still apply
 (`type(scope): description`).
 
 ## Migration sequence
-> **Numbering has shifted +1 twice, both on 2026-07-29.** First `0022` was taken by the de-brand data
-> migration (`0022_debrand_market_content.sql`). Then `0023` was taken by
-> `0023_fix_league_notification_and_realtime.sql` — the `league_win` enum value and the league-chat
-> realtime publication, two silent breakages found while building the E2E suite (see
-> `MIGRATIONS_LOG.md` for why). De-trending is therefore now **0024** and profiles lands at **0033**.
-> Spec §7 and §10.7 both match this numbering.
+> **Numbering has shifted +1 three times, all on 2026-07-29.** `0022` went to the de-brand data
+> migration. `0023` went to the `league_win` enum + league-chat realtime fixes. `0024` went to the
+> league RLS **infinite-recursion** fix. All three of the latter two were silent breakages found by
+> the new E2E suite on its first run (see `MIGRATIONS_LOG.md`). De-trending is therefore now **0025**
+> and profiles lands at **0034**. Spec §7 and §10.7 both match this numbering.
 
 0. **De-GDS cleanup (app work, no migration):** ✅ **DONE** — `@gds.org` auth check removed, GDS copy
    stripped, package renamed, seed script de-branded, palette recolored to black/white/purple.
 1. **0022** — ✅ **APPLIED (prod)** de-brand: rewrite the 7 GDS-titled seeded markets in place
    (UPDATE, not DELETE, to preserve attached positions/comments/history).
-2. **0023** — ✅ **APPLIED (local only — still needs a prod `db push`)** add `league_win` to the
+2. **0023** — ✅ **APPLIED** add `league_win` to the
    `notification_type` enum (its absence aborted every league week-close that had a winner) and add
    `league_messages` to the `supabase_realtime` publication (league chat never updated live).
-3. **0024** — de-trending: drop the `trending` category enum value (reassign existing rows first via
+3. **0024** — ✅ **APPLIED (prod)** fix **infinite recursion** in
+   `league_members_select` (from 0003): it subqueried `league_members` from inside that table's own
+   policy, so every authenticated read of `leagues` / `league_members` / `league_messages` /
+   `league_weeks` / `league_week_participants` / `league_bets` failed with
+   `42P17 infinite recursion detected in policy`. **The entire leagues feature was dead for every
+   real user** — `/leagues/[id]` 404'd even for its own owner — and only `service_role` paths worked,
+   which is why it never surfaced. Adds the `is_league_member()` SECURITY DEFINER helper, rewrites the
+   league policies to use it, and adds `find_league_by_invite_code()` so a prospective member can
+   resolve a private league from its code (invite-code joining had never worked either). **Read this
+   migration before writing 0028's tier RLS — `can_view_market()` is the same shape and the same trap.**
+4. **0025** — de-trending: drop the `trending` category enum value (reassign existing rows first via
    the 3-step enum swap). App-side, this is small: delete the `trending` key from
    `getCategoryColors()` **and** `getCategoryLabel()` in `src/lib/utils.ts`, drop the "Trending" pill
    from `AdminCreateMarket.tsx`, and narrow `MarketCategory` in `src/types/database.ts`.
-   **Do NOT delete the `/dashboard/trending` route in 0024** — an earlier version of this line said
+   **Do NOT delete the `/dashboard/trending` route in 0025** — an earlier version of this line said
    to, and that was wrong. That route is the post-login *home feed*; nine files redirect to it
    (`proxy.ts`, `app/page.tsx`, `api/auth/callback`, `login`, `onboarding`, `OnboardingForm`,
    `lib/auth.ts`, `Sidebar`, `BottomTabBar`) and the page never filters on `category`. Renaming it is
    §11 nav work (step 12), and its algorithmic sections plus the Hot Streak / Cold Streak Stat Leader
    cards — which read `profiles.win_streak` / `loss_streak`, not `category` — must survive that move.
-4. **0025** — `circles` + `circle_members` tables (+ member-count trigger, RLS).
-5. **0026** — market tier columns (`visibility_tier`, `league_id`, `circle_id`) + scope constraint, all defaulting to `public`.
-6. **0027** — tier-aware RLS: the `can_view_market()` helper + rewritten SELECT policies on all market-joined tables, **and `can_view_market()` added to the `WITH CHECK` of their INSERT policies**. The existing `mc_insert` (0019) and `reactions_insert` (0016) test authorship only (`user_id = auth.uid()`), so tier-scoping reads alone still lets an outsider who knows a private market's UUID write a comment or reaction into it. **The critical migration — ships only when the full positive AND negative matrix is green for reads *and* writes.**
-7. **0028** — league gating (`tournament_enabled`, nullable `buy_in_coins`) + `leagues.circle_id`.
-8. **0029** — model (b) scoring: reshape `league_bets`, rewrite the two tournament scoring functions.
-9. **0030** — scoped creation (`create_league_market` RPC) + circle suggestion→approval flow + scoped incident reports.
-10. **0031** — comment threading (`parent_comment_id`) + `comment_reactions`.
-11. **0032** — activity-feed tier scoping + new notification types.
-12. **0033** — profiles (`bio`), public profile pages, profile edit.
-13. **Then** the §11 navigation + presentation overhaul (tier-first nav, comment-section UI, Stat Leaders).
+5. **0026** — `circles` + `circle_members` tables (+ member-count trigger, RLS).
+6. **0027** — market tier columns (`visibility_tier`, `league_id`, `circle_id`) + scope constraint, all defaulting to `public`.
+7. **0028** — tier-aware RLS: the `can_view_market()` helper + rewritten SELECT policies on all market-joined tables, **and `can_view_market()` added to the `WITH CHECK` of their INSERT policies**. The existing `mc_insert` (0019) and `reactions_insert` (0016) test authorship only (`user_id = auth.uid()`), so tier-scoping reads alone still lets an outsider who knows a private market's UUID write a comment or reaction into it. **The critical migration — ships only when the full positive AND negative matrix is green for reads *and* writes.**
+8. **0029** — league gating (`tournament_enabled`, nullable `buy_in_coins`) + `leagues.circle_id`.
+9. **0030** — model (b) scoring: reshape `league_bets`, rewrite the two tournament scoring functions.
+10. **0031** — scoped creation (`create_league_market` RPC) + circle suggestion→approval flow + scoped incident reports.
+11. **0032** — comment threading (`parent_comment_id`) + `comment_reactions`.
+12. **0033** — activity-feed tier scoping + new notification types.
+13. **0034** — profiles (`bio`), public profile pages, profile edit.
+14. **Then** the §11 navigation + presentation overhaul (tier-first nav, comment-section UI, Stat Leaders).
 
 ## What already exists (Phase 0 — extend, don't rebuild)
 Working CPMM with American-odds payouts, probability-history charts, over/under markets, RLS throughout with `SECURITY DEFINER` RPCs for state changes, community resolution via incident reports + voting, Realtime comments with @mentions, streak triggers, a weekly tournament system, magic-link auth (currently `@gds.org`-gated), and an admin dashboard with suggestion approval + line-setting. The refactor extends this; it does not replace it.
@@ -160,7 +169,7 @@ The hosted Supabase project currently holds only **seeded test accounts** (handl
 
 ## Key references
 - `docs/forecast-data-model-spec.md` — full spec: data model (§§1–9), verification plan (§10), navigation/layout (§11), locked decisions (§8, §11.4). **Read the relevant section before each migration.**
-- `supabase/migrations/` — existing schema through 0023.
+- `supabase/migrations/` — existing schema through 0024.
 - `TESTING.md` — **binding** testing rules: what "done" means, the two required layers, the RLS
   methodology, and the forbidden shortcuts. Read it before writing a test or claiming a task finished.
 - `src/types/database.ts` — hand-written; hand-update after schema changes (never `gen types` over it).

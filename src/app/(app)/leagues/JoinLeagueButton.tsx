@@ -24,26 +24,29 @@ export function JoinLeagueButton() {
     setIsLoading(true);
     const supabase = createClient();
 
-    // Look up league by invite code
-    const { data: league } = await supabase
-      .from("leagues")
-      .select("id, name, max_members")
-      .eq("invite_code", code.trim().toUpperCase())
-      .single();
+    // Look up the league by invite code via a SECURITY DEFINER RPC.
+    //
+    // A direct `from("leagues").eq("invite_code", …)` cannot work here: the
+    // leagues SELECT policy is `is_public OR creator OR member`, and someone
+    // holding an invite code is none of those yet — so the lookup returned no
+    // row and every VALID code was reported as invalid. Leagues default to
+    // private, so invite-code joining never worked at all. The RPC (0024)
+    // returns only id/name/max_members/member_count/is_member for an exact code
+    // match, so nothing about other private leagues is exposed.
+    const { data: matches, error: lookupError } = await supabase.rpc(
+      "find_league_by_invite_code",
+      { p_code: code.trim() }
+    );
 
-    if (!league) {
+    const league = Array.isArray(matches) ? matches[0] : matches;
+
+    if (lookupError || !league) {
       setError("Invalid invite code. Please check and try again.");
       setIsLoading(false);
       return;
     }
 
-    // Check member count
-    const { count } = await supabase
-      .from("league_members")
-      .select("*", { count: "exact", head: true })
-      .eq("league_id", league.id);
-
-    if ((count ?? 0) >= league.max_members) {
+    if ((league.member_count ?? 0) >= league.max_members) {
       setError("This league is full.");
       setIsLoading(false);
       return;
@@ -56,15 +59,7 @@ export function JoinLeagueButton() {
       return;
     }
 
-    // Check if already a member
-    const { data: existing } = await supabase
-      .from("league_members")
-      .select("league_id")
-      .eq("league_id", league.id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (existing) {
+    if (league.is_member) {
       setIsOpen(false);
       router.push(`/leagues/${league.id}`);
       return;
@@ -95,6 +90,7 @@ export function JoinLeagueButton() {
       <Button
         variant="secondary"
         size="sm"
+        data-testid="join-league-open"
         onClick={() => setIsOpen(true)}
       >
         <LogIn size={14} strokeWidth={2.5} />
@@ -117,6 +113,7 @@ export function JoinLeagueButton() {
             </label>
             <input
               id="invite-code"
+              data-testid="join-league-code"
               type="text"
               value={code}
               onChange={(e) => { setCode(e.target.value); setError(null); }}
@@ -136,6 +133,7 @@ export function JoinLeagueButton() {
                 className="text-xs mt-1"
                 style={{ color: "var(--color-danger)" }}
                 role="alert"
+                data-testid="join-league-error"
               >
                 {error}
               </p>
@@ -157,6 +155,7 @@ export function JoinLeagueButton() {
               variant="primary"
               size="md"
               className="flex-1"
+              data-testid="join-league-submit"
               isLoading={isLoading}
               disabled={code.trim().length < 4}
             >
