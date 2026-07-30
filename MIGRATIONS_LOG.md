@@ -36,7 +36,7 @@ CLI ledger from the real schema, which is what required the 2026-07-29 repair ab
 | 0023_fix_league_notification_and_realtime | 2026-07-29 | local, then **prod** (`curtlcoxtnoxljzkrlms`) | **Local:** `supabase migration up --local`; `pg_enum` shows `notification_type` ending in `league_win` (9 values), `pg_publication_tables` shows `league_messages` in `supabase_realtime`, re-run applied 0 migrations (idempotent). **Prod:** `db push` after a clean `--dry-run` listing 0023 as the only queued migration; `migration list --linked` now shows 23 matched pairs. Enum verified on prod by PostgREST probe — `?type=eq.league_win` returns `[]` while a bogus value returns `22P02 invalid input value for enum`, which is exactly the error `league_win` itself would have produced before this migration. Publication change verified on local only (PostgREST cannot read `pg_catalog`); confirm on prod via the SQL editor or by watching league chat update without a reload. |
 | 0024_fix_league_rls_recursion | 2026-07-30 | local, then **prod** (`curtlcoxtnoxljzkrlms`) | **Local:** `migration up --local`, then verified through **authenticated** clients (never `service_role`, which bypasses RLS and would prove nothing): before, every league read returned `42P17 infinite recursion detected in policy for relation "league_members"`; after, a league's owner and members each read it while a non-member gets `[]` — filtered, not errored — including a direct-by-id read of `league_messages`. `/leagues/[id]` renders for its owner again (it previously 404'd). Covered by `e2e/leagues.spec.ts` + `e2e/league-tournament.spec.ts` (27 tests), full suite 218 green. **Prod:** `db push` after a dry-run listing 0024 as the only queued migration; `migration list --linked` shows 24 matched pairs. Post-apply probe with the anon key: `GET /rest/v1/leagues` and `/rest/v1/league_members` both return rows (they raised `42P17` before), and `POST /rest/v1/rpc/find_league_by_invite_code` returns `[]` for a bogus code, proving both new functions landed. |
 | 0025_detrending | 2026-07-30 | local, then **prod** (`curtlcoxtnoxljzkrlms`) | **Local:** `migration up --local`. Post-apply the enum is exactly `{sports,social,actions}`; `market_category_new` no longer exists (the rename took); both `markets.category` and `market_suggestions.category` are still typed `market_category`; `SELECT 'trending'::market_category` raises `22P02`. `pg_policies` count identical before and after (39 → 39) — checked per the 0024 lesson that a no-op `DROP POLICY IF EXISTS` is silent. Re-running the file is a clean no-op (the swap is guarded on `trending` still being an enum member). **Not run:** fresh-DB replay via `db reset`, which was declined to preserve local data. **Prod:** `db push` after a dry-run listing 0025 as the only queued migration. Row counts identical before and after — markets 11, suggestions 11, positions 20, comments 4, so nothing cascaded. Category split moved exactly as intended: markets `{actions 6, social 2, sports 2, trending 1}` → `{actions 6, social 3, sports 2}`; suggestions `{social 5, actions 4, sports 1, trending 1}` → `{social 6, actions 4, sports 1}`. Both reassigned rows verified by id and now read `social`. Negative check: `?category=eq.trending` returns `22P02 invalid input value for enum`. |
-| _next: 0026 (circles + circle_members tables)_ | | | |
+| _next: 0026 (resolution notifications) and 0027 (locked line + referral) — both written, neither applied_ | | | |
 
 ### Prod data operations (not migrations, but they changed production)
 
@@ -88,5 +88,22 @@ strongest argument for the §10.4 rule that RLS must never be tested through `se
 transaction. Separately, `league_messages` was never added to the realtime publication, so league
 chat never updated live. Both were found while building the E2E suite (see `TESTING.md`), which
 could not test the tournament flow without them. This consumed `0023`; `0024` was then consumed by the
-league RLS fix above, so the planned sequence shifted +1 twice — de-trending is now **0025** and
-profiles lands at **0034**.
+league RLS fix above, so the planned sequence shifted +1 twice — de-trending is now **0025**.
+
+### Why 0026 exists (it was not in the original plan either)
+
+Both resolution functions notified **winners only**. `resolve_market` (0007) emits `payout_received`
+from inside a loop over `side = v_winning_side`; losers were settled by a single set-based `UPDATE`
+with no iteration and no notification. `resolve_ou_market` (0010) loops over every position but only
+its WIN branch inserts anything — the LOSS branch is silent and the PUSH branch is worse, moving
+coins back into the balance with no explanation, so a refund reads as an unexplained balance change.
+Net effect: you bet, you lost, and the app never mentioned it. `market_resolved` had been sitting in
+the `notification_type` enum since 0002, inserted by nothing, anywhere.
+
+This consumed `0026`; `0027` then went to the unlocked read-modify-write fix, so the sequence has now
+shifted **+1 five times**: the tier work proper starts at **0028** and profiles lands at **0036**.
+
+> The file was first written as `0025_resolution_notifications.sql`, colliding with the already
+> applied `0025_detrending.sql`. `db push` rejects duplicate version prefixes — **`ls
+> supabase/migrations/` before naming a new migration.** This bit twice in one day;
+> `0027_locked_line_and_referral.sql` started life as `0026_…` for the same reason.

@@ -95,6 +95,29 @@ expect(error).toBeNull();   // RLS does not error — it filters…
 expect(data).toEqual([]);   // …to empty. A row here is a leak.
 ```
 
+**Do not hand-roll that.** `e2e/helpers/rls.ts` exports it, along with the traps it is easy to miss:
+
+```ts
+import { expectCanRead, expectCannotRead, expectCannotWrite } from "./helpers/rls";
+
+await expectCannotRead(bob, "markets", circleXMarketId);          // filtered to empty
+await expectCanRead(alice, "markets", circleXMarketId);           // and the positive half
+await expectCannotWrite(bob, "market_comments", { … });           // rejected AND nothing landed
+```
+
+Three things those helpers do that a hand-written assertion usually doesn't:
+
+1. **They verify the row exists first, through `service_role`.** A negative read assertion against an
+   id that was never seeded is green forever and proves nothing — from the client, a denied read and
+   an absent row are identical.
+2. **They treat an error as a failure, not a pass.** `42P17` recursion or a missing column also
+   returns no rows; reading that as "access denied" is how a real defect hides behind a green test.
+3. **`expectCannotWrite` confirms nothing persisted**, rather than trusting the error — a sibling
+   policy or trigger can still write after the statement you sent was refused.
+
+Their own tests are in `e2e/rls-harness.spec.ts`, which exercises each helper in both directions
+against Phase-0 boundaries, including proving each one *fails* when the boundary is absent.
+
 Every tier-scoped table gets this test: `markets`, `positions`, `market_comments`,
 `market_reactions`, `market_probability_history`, `activity_feed`.
 
@@ -128,9 +151,11 @@ expect((await bob.rpc(  "can_view_market", { p_market_id: circleXMarketId })).da
 ```
 
 > The current `e2e/` suite covers **Phase 0**, which has no tiers yet, so it uses a smaller five-user
-> fixture set (`e2e/helpers/fixtures.ts`). The seven-user matrix lands in Vitest alongside migration
-> **0028** (tier-aware RLS), where there is finally a tier boundary to test. That migration does not
-> ship on a single red negative test.
+> fixture set (`e2e/helpers/fixtures.ts`). The **assertions** are ready (`e2e/helpers/rls.ts`); the
+> **fixtures** are not — Carol, Dave, Erin and Mod still need seeding, and two of them cannot be
+> placed until migration **0028** creates `circles`. The seven-user matrix therefore lands alongside
+> migration **0030** (tier-aware RLS), where there is finally a tier boundary to test. That migration
+> does not ship on a single red negative test.
 
 ### Admin is not a database concept
 

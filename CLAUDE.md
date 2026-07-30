@@ -112,11 +112,18 @@ or suggest it as an improvement. Conventional Commit messages still apply
 (`type(scope): description`).
 
 ## Migration sequence
-> **Numbering has shifted +1 three times, all on 2026-07-29.** `0022` went to the de-brand data
-> migration. `0023` went to the `league_win` enum + league-chat realtime fixes. `0024` went to the
-> league RLS **infinite-recursion** fix. All three of the latter two were silent breakages found by
-> the new E2E suite on its first run (see `MIGRATIONS_LOG.md`). De-trending is therefore now **0025**
-> and profiles lands at **0034**. Spec §7 and §10.7 both match this numbering.
+> **Numbering has shifted +1 five times.** `0022` went to the de-brand data migration. `0023` went to
+> the `league_win` enum + league-chat realtime fixes. `0024` went to the league RLS
+> **infinite-recursion** fix (those three on 2026-07-29). `0026` went to the resolution-notification
+> fix and `0027` to the unlocked read-modify-write fix (both 2026-07-30). Every one of the latter four
+> was a silent breakage found by the new E2E suite (see `MIGRATIONS_LOG.md`). De-trending is therefore
+> **0025**, the tier work proper starts at **0028**, and profiles lands at **0036**. Spec §7 and §10.7
+> both match this numbering.
+>
+> **Check `ls supabase/migrations/` before naming a new file.** This has now bitten twice in one day:
+> `0026_resolution_notifications.sql` was first written as `0025_…`, and
+> `0027_locked_line_and_referral.sql` was first written as `0026_…`, each colliding with a migration
+> that landed while it was being written. `db push` rejects duplicate version prefixes.
 
 0. **De-GDS cleanup (app work, no migration):** ✅ **DONE** — `@gds.org` auth check removed, GDS copy
    stripped, package renamed, seed script de-branded, palette recolored to black/white/purple.
@@ -134,7 +141,7 @@ or suggest it as an improvement. Conventional Commit messages still apply
    which is why it never surfaced. Adds the `is_league_member()` SECURITY DEFINER helper, rewrites the
    league policies to use it, and adds `find_league_by_invite_code()` so a prospective member can
    resolve a private league from its code (invite-code joining had never worked either). **Read this
-   migration before writing 0028's tier RLS — `can_view_market()` is the same shape and the same trap.**
+   migration before writing 0030's tier RLS — `can_view_market()` is the same shape and the same trap.**
 4. **0025** — de-trending: drop the `trending` category enum value (reassign existing rows first via
    the 3-step enum swap). App-side, this is small: delete the `trending` key from
    `getCategoryColors()` **and** `getCategoryLabel()` in `src/lib/utils.ts`, drop the "Trending" pill
@@ -145,16 +152,30 @@ or suggest it as an improvement. Conventional Commit messages still apply
    `lib/auth.ts`, `Sidebar`, `BottomTabBar`) and the page never filters on `category`. Renaming it is
    §11 nav work (step 12), and its algorithmic sections plus the Hot Streak / Cold Streak Stat Leader
    cards — which read `profiles.win_streak` / `loss_streak`, not `category` — must survive that move.
-5. **0026** — `circles` + `circle_members` tables (+ member-count trigger, RLS).
-6. **0027** — market tier columns (`visibility_tier`, `league_id`, `circle_id`) + scope constraint, all defaulting to `public`.
-7. **0028** — tier-aware RLS: the `can_view_market()` helper + rewritten SELECT policies on all market-joined tables, **and `can_view_market()` added to the `WITH CHECK` of their INSERT policies**. The existing `mc_insert` (0019) and `reactions_insert` (0016) test authorship only (`user_id = auth.uid()`), so tier-scoping reads alone still lets an outsider who knows a private market's UUID write a comment or reaction into it. **The critical migration — ships only when the full positive AND negative matrix is green for reads *and* writes.**
-8. **0029** — league gating (`tournament_enabled`, nullable `buy_in_coins`) + `leagues.circle_id`.
-9. **0030** — model (b) scoring: reshape `league_bets`, rewrite the two tournament scoring functions.
-10. **0031** — scoped creation (`create_league_market` RPC) + circle suggestion→approval flow + scoped incident reports.
-11. **0032** — comment threading (`parent_comment_id`) + `comment_reactions`.
-12. **0033** — activity-feed tier scoping + new notification types.
-13. **0034** — profiles (`bio`), public profile pages, profile edit.
-14. **Then** the §11 navigation + presentation overhaul (tier-first nav, comment-section UI, Stat Leaders).
+5. **0026** — ⏳ **WRITTEN, NOT APPLIED** resolution notifications: both resolve functions notified
+   winners only, so a losing bettor was never told their market resolved, and `resolve_ou_market`'s
+   PUSH branch refunded coins silently. No `ALTER TYPE` needed — `market_resolved` has been in the
+   `notification_type` enum since 0002 and was inserted by nothing, anywhere.
+6. **0027** — ⏳ **WRITTEN, NOT APPLIED** the unlocked read-modify-write fix. `place_bet` /
+   `place_ou_bet` were **already correct** — both take `SELECT … FOR UPDATE` on the market before
+   reading pools and on the profile before checking the balance (verified by mutation testing: strip
+   the locks and 4 of 6 tests in `e2e/concurrency.spec.ts` go red with 300–700 coins vanishing). The
+   invariant they rely on — *everyone who writes pools holds the market lock* — was broken by
+   `setMarketLine()`, which read pools over PostgREST, computed in TS, and wrote back across two
+   transactions. Adds `set_market_line()` + `american_odds_to_prob()`, locks `record_referral()`'s
+   idempotency check (concurrent calls minted 500 coins twice), and gives
+   `profiles.referred_by` `ON DELETE SET NULL` — it had no ON DELETE action, so **any user who ever
+   referred somebody could not be deleted at all**.
+7. **0028** — `circles` + `circle_members` tables (+ member-count trigger, RLS).
+8. **0029** — market tier columns (`visibility_tier`, `league_id`, `circle_id`) + scope constraint, all defaulting to `public`.
+9. **0030** — tier-aware RLS: the `can_view_market()` helper + rewritten SELECT policies on all market-joined tables, **and `can_view_market()` added to the `WITH CHECK` of their INSERT policies**. The existing `mc_insert` (0019) and `reactions_insert` (0016) test authorship only (`user_id = auth.uid()`), so tier-scoping reads alone still lets an outsider who knows a private market's UUID write a comment or reaction into it. **The critical migration — ships only when the full positive AND negative matrix is green for reads *and* writes.**
+10. **0031** — league gating (`tournament_enabled`, nullable `buy_in_coins`) + `leagues.circle_id`.
+11. **0032** — model (b) scoring: reshape `league_bets`, rewrite the two tournament scoring functions.
+12. **0033** — scoped creation (`create_league_market` RPC) + circle suggestion→approval flow + scoped incident reports.
+13. **0034** — comment threading (`parent_comment_id`) + `comment_reactions`.
+14. **0035** — activity-feed tier scoping + new notification types.
+15. **0036** — profiles (`bio`), public profile pages, profile edit.
+16. **Then** the §11 navigation + presentation overhaul (tier-first nav, comment-section UI, Stat Leaders).
 
 ## What already exists (Phase 0 — extend, don't rebuild)
 Working CPMM with American-odds payouts, probability-history charts, over/under markets, RLS throughout with `SECURITY DEFINER` RPCs for state changes, community resolution via incident reports + voting, Realtime comments with @mentions, streak triggers, a weekly tournament system, magic-link auth (currently `@gds.org`-gated), and an admin dashboard with suggestion approval + line-setting. The refactor extends this; it does not replace it.

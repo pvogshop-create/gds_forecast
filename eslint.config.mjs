@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Generated, git-ignored, and not ours to fix. `supabase start` drops a
+    // bundled edge-runtime file here that alone accounts for ~190 lint errors
+    // in minified code, drowning out every real finding in the source tree.
+    "supabase/.temp/**",
+    "test-results/**",
+    "playwright-report/**",
   ]),
 ]);
 
