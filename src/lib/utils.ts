@@ -66,7 +66,6 @@ export function getCategoryLabel(category: MarketCategory): string {
     sports: "Sports",
     social: "Social",
     actions: "Actions",
-    trending: "Trending",
   };
   return labels[category];
 }
@@ -83,8 +82,6 @@ export function getCategoryColors(category: MarketCategory): {
     sports: { bg: "bg-violet-100", text: "text-violet-900" },
     actions: { bg: "bg-violet-50", text: "text-violet-700" },
     social: { bg: "bg-purple-50", text: "text-purple-600" },
-    // `trending` is removed by migration 0023 (de-trending) — delete this key then.
-    trending: { bg: "bg-neutral-100", text: "text-neutral-700" },
   };
   return colors[category];
 }

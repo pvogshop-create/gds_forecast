@@ -3,7 +3,7 @@
 // Replace with generated types once the Supabase project is set up:
 //   npx supabase gen types typescript --project-id YOUR_PROJECT_ID > src/types/database.ts
 
-export type MarketCategory = "sports" | "social" | "actions" | "trending";
+export type MarketCategory = "sports" | "social" | "actions";
 export type MarketType = "binary" | "over_under";
 export type MarketStatus =
   | "open"
