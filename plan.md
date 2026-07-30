@@ -1,7 +1,7 @@
 # Forecast — Tier Refactor Plan
 
 28 steps, in order. Each is one thing that changes, sized 30–60 min per part.
-Migrations 0024 → 0033, then the navigation overhaul.
+Migrations 0025 → 0034, then the navigation overhaul.
 
 ---
 
@@ -15,7 +15,7 @@ Much of it now does (see Part I): the local stack is up and a Playwright suite w
 auth helpers and a prod-lockout guard is working. What's still missing is the part that gates
 step 10 — the seven-user tier matrix and the visibility assertions themselves.
 
-That matters at **step 10 (migration 0027)**, which rewrites the market read policy from
+That matters at **step 10 (migration 0028)**, which rewrites the market read policy from
 `USING (auth.role() = 'authenticated')` — every logged-in user reads every market — into tier-scoped
 visibility. Get it wrong and private league markets leak between teenagers, and per spec §10.1 it
 fails **silently**: no exception, no build error, no type error. The only way to catch it is querying
@@ -29,12 +29,26 @@ been avoiding local testing over a constraint that didn't exist.
 **Ladder:** local → prod for now (prod holds only seeded test data). A separate staging project
 becomes a hard gate at step 10, before real users.
 
-**Numbering note.** `0023` was consumed by `0023_fix_league_notification_and_realtime.sql`, a
-bug-fix migration found while building the E2E suite: `close_league_week()` inserted a `league_win`
-notification whose enum value never existed, so **every league week-close with a winner aborted the
-whole payout transaction**. Only the no-winner carry-over branch avoided the INSERT, which is why it
-went unnoticed. It also adds `league_messages` to the realtime publication, fixing league chat not
-updating live. De-trending therefore starts at **0024** and profiles lands at **0033**.
+**Numbering note — shifted +1 twice, both by bug fixes the E2E suite uncovered.**
+
+- **`0023`** — `close_league_week()` inserted a `league_win` notification whose enum value never
+  existed, so **every league week-close with a winner aborted the whole payout transaction**. Only
+  the no-winner carry-over branch avoided that INSERT, which is why it went unnoticed. Also adds
+  `league_messages` to the realtime publication, fixing league chat not updating live.
+- **`0024`** — `league_members_select`, written in **0003**, subqueried `league_members` from inside
+  `league_members`' own SELECT policy. Postgres aborts every evaluation with `42P17`, and since
+  `leagues_select` subqueries `league_members`, the failure spread to every league-scoped table.
+  **The leagues feature had therefore been dead for every real user since the first RLS migration** —
+  league pages 404'd for their own owners, chat and standings never loaded, invite codes always said
+  "Invalid invite code." It survived months of use because `service_role` bypasses RLS, so seeding,
+  cron and the admin dashboard all worked. The E2E suite caught it on its first run against real
+  authenticated sessions.
+
+De-trending therefore starts at **0025** and profiles lands at **0034**. Both fixes are on prod.
+
+That second one is the strongest possible argument for the ordering this plan takes: a policy bug
+that broke an entire feature was invisible to every form of testing *except* querying as a real
+authenticated user. Step 10 is a much larger policy change than 0003 was.
 
 ---
 
@@ -67,10 +81,16 @@ of the full verification protocol.
 
 *No schema changes. This builds the thing that makes every later change safe.*
 
-> **Status 2026-07-29:** steps 1–3 are done. Steps 4–6 were partly built, via a **Playwright** suite
-> rather than the Vitest one this plan originally specified — that's a fine substitution and the
-> descriptions below have been rewritten to match what exists. What's still missing is the part that
-> actually gates step 10: the tier-visibility assertions and the seven-user matrix.
+> **Status 2026-07-30:** steps 1, 2, 3 and 6 are **done**, built as a **Playwright** suite rather
+> than the Vitest one this plan originally specified — a fine substitution, and the descriptions
+> below match what exists. 212 tests across 19 spec files.
+>
+> **Only step 4 remains, and it is what blocks step 10.** The tier matrix needs four more users, and
+> two of them can't be finished until step 8 creates `circles` — so the honest order is
+> **8 → finish 4 → 10**, not the numeric order.
+>
+> The harness has already paid for itself twice: it found the `league_win` enum crash (0023) and the
+> league RLS recursion that had killed the whole leagues feature (0024). Both are fixed on prod.
 
 ## 1. Doc corrections (30 min) — ✅ DONE
 
@@ -138,29 +158,24 @@ Still missing, and this is what gates step 10:
   RLS *filters*, it does not throw — asserting on a thrown error is the classic false-green.
 - The matching `expectCannotWrite` for step 10d's negative write cases.
 
-## 6. Betting-loop regression (60 min) — ❌ NOT DONE
+## 6. Betting-loop regression (60 min) — ✅ DONE
 
-`package.json` declares `test:e2e:loop` → `e2e/betting-loop.spec.ts`, **but that file doesn't
-exist** — the script fails if run. This is the tripwire for "the migration broke the product," and it
-re-runs after every migration from here on, so it needs to exist before step 7.
+`e2e/betting-loop.spec.ts` exists and `npm run test:e2e:loop` runs it. It walks the whole spec §10.6
+loop end to end — claim bonus → place bet → pools/probability/coins move and `yes_odds_at_bet` locks
+→ resolve → payout, streak trigger, notifications → leaderboard.
 
-Mostly assembly rather than new machinery: `e2e/helpers/seed.ts` already exports `createMarket`,
-`placeBetAs`, `resolveMarketAs`, `setCoins`, `createLeague` and `startWeek`.
+**Re-run this after every migration from here on.** It is the tripwire for "the migration broke the
+product," and it is cheap compared to finding out from a user.
 
-1. Claim daily bonus → balance rises, `last_daily_claim` set, second same-day claim rejected.
-2. Place bet → position created, pools shift, probability recomputes via trigger, history row
-   appended, coins decrease, `yes_odds_at_bet` locked.
-3. Resolve → winners `won` + payout, losers `lost`, coins credited, streak trigger fires,
-   `market_resolved` + `payout_received` notifications created.
-4. Leaderboard reflects balances; weekly-top-earner RPC returns the right user.
-
-**Done when:** green locally against the local stack.
+The wider suite (212 tests, 19 files) also covers auth, authorization, binary and O/U betting,
+comments, reactions, feeds, incidents, leagues, tournaments, admin, suggestions, profile/leaderboard
+and mobile nav — so a migration that breaks something outside the betting loop gets caught too.
 
 ---
 
 # Part II — Tier foundation (steps 7–10)
 
-## 7. Drop the `trending` category — 0024 (2h)
+## 7. Drop the `trending` category — 0025 (2h)
 
 Trending is both an enum value and the name of the home tab; the collision causes subtle bugs in tier
 work. It becomes a *view*, not a category.
@@ -185,7 +200,7 @@ sections, and the **Hot Streak / Cold Streak** cards — they read `profiles.win
 markets still 11, positions still 20. Delete the six dev/test leagues (Finding 5), checking for
 attached members/bets/chat first — destructive prod write. Log in `MIGRATIONS_LOG.md`, commit.
 
-## 8. Circles and circle members — 0025 (105 min)
+## 8. Circles and circle members — 0026 (105 min)
 
 **8a — Tables + RLS (60 min).** Per spec §2.1–2.2: `circles`, `circle_members`, the `member_count`
 sync trigger, slug uniqueness, and their RLS policies — **shipped together**, never a table without
@@ -196,7 +211,7 @@ Dave.
 own circle; **a user cannot insert a `circle_members` row for someone else**; duplicate slug
 rejected; circle delete cascades with no orphans; creator gets `role='creator'`. Betting loop green.
 
-## 9. Market tier columns — 0026 (90 min)
+## 9. Market tier columns — 0027 (90 min)
 
 **9a — Columns + constraint (45 min).** Per spec §3.1: `visibility_tier`, `league_id`, `circle_id` on
 `markets`, all defaulting to public, plus the scope CHECK.
@@ -209,9 +224,21 @@ reject: a public market with either scope id set; a league market with null `lea
 market with null `circle_id`; and **any** market with both ids. Verify cascades — deleting a league
 removes its league-tier markets and their positions/comments, and reaches **no** public rows.
 
-## 10. Tier-aware RLS — 0027 (5h) ⚠️ the critical one
+## 10. Tier-aware RLS — 0028 (5h) ⚠️ the critical one
 
 The migration that leaks data if it's wrong. Tests are written **red, before the policies exist**.
+
+> **Two lessons from 0024, which was this same kind of change on a smaller scale.**
+>
+> **Diff `pg_policies` before and after — a no-op `DROP POLICY IF EXISTS` is silent.** 0024's first
+> draft dropped policies by names that didn't exist (`league_weeks_select` when 0017 had actually
+> named it `lw_select`, and three more). The guards matched nothing, so the migration *added* new
+> policies beside the originals instead of replacing them. Permissive policies are **OR'd**, so the
+> originals kept granting access — and `lb_insert` has no membership test, meaning the restriction the
+> migration was written to add would never have been enforced. It looked like it applied cleanly.
+>
+> **Check the policy names in the migration that created them**, not the names you'd expect. Step 10
+> replaces policies across six tables; the same mismatch there fails open on tier visibility.
 
 **10a — Write the matrix red (60 min).** `src/__tests__/rls/tier-visibility.test.ts`. Seed one market
 per tier, then assert the full matrix while `can_view_market()` still doesn't exist — the failure is
@@ -270,7 +297,7 @@ yours; wiring the restore and pointing the suite at it is scriptable.
 
 # Part III — Leagues and scoring (steps 11–12)
 
-## 11. League tournament gating — 0028 (90 min)
+## 11. League tournament gating — 0029 (90 min)
 
 **11a — Migration (45 min).** Per spec §3.3: `tournament_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
 `leagues.circle_id` (nullable, `ON DELETE SET NULL`), and `buy_in_coins` dropped to nullable. Every
@@ -281,7 +308,7 @@ retained but dormant.
 **a non-owner cannot flip it** (an RPC/RLS check, not just UI); nullable buy-in accepted; league chat,
 standings, membership and invite codes all still work. Wire the settings toggle to the owner check.
 
-## 12. Model (b) tournament scoring — 0029 (3.5h)
+## 12. Model (b) tournament scoring — 0030 (3.5h)
 
 A bet counts for a league if the market is league-exclusive to it (**automatic**) or the user tagged
 a public/circle bet into it (**manual**). Circle markets never auto-count, even inside that circle
@@ -315,7 +342,7 @@ for no league; a market resolving outside any week simply doesn't score.
 
 ---
 
-# Part IV — Creation paths (steps 13–15) · migration 0030
+# Part IV — Creation paths (steps 13–15) · migration 0031
 
 ## 13. League market direct-create (105 min)
 
@@ -355,7 +382,7 @@ A reporter still can't vote on their own report.
 
 # Part V — Social and profiles (steps 16–19)
 
-## 16. Comment threading and reactions — 0031 (90 min)
+## 16. Comment threading and reactions — 0032 (90 min)
 
 **16a — Migration (45 min).** Per spec §3.6 and §2.4: `market_comments.parent_comment_id` (self-FK,
 cascade) with a partial index, plus `comment_reactions` keyed `(comment_id, user_id, emoji)`. Note the
@@ -367,7 +394,7 @@ evolve without a migration; validate in the app layer.
 read or react to a comment on a market you can't see**, including by direct id. Confirm the existing
 Realtime subscription still fires.
 
-## 17. Notification types — 0032a (45 min)
+## 17. Notification types — 0033a (45 min)
 
 Deliberately **its own migration, ahead of any code that inserts these values.**
 `ALTER TYPE notification_type ADD VALUE IF NOT EXISTS` for `market_about_you`, `circle_joined`,
@@ -377,7 +404,7 @@ Per spec §10.8: a newly added enum value **cannot be used in the transaction th
 some Postgres versions `ADD VALUE` can't run in a transaction block at all. Verify the values are
 usable *after* apply before writing anything that inserts them.
 
-## 18. Activity feed scoping and new notifications — 0032b (165 min)
+## 18. Activity feed scoping and new notifications — 0033b (165 min)
 
 **18a — Column + insert audit (60 min).** `activity_feed.circle_id` (spec §3.10), then **audit every
 `INSERT INTO public.activity_feed` call site** and confirm each carries tier context. Spec §10.7 names
@@ -405,7 +432,7 @@ in the existing notifications UI.
 sign up to see"). That needs an out-of-band share mechanic, not a notification — spec Decision #5
 defers it to the growth phase.
 
-## 19. Profile bio and the missing edit route — 0033 (60 min)
+## 19. Profile bio and the missing edit route — 0034 (60 min)
 
 `profiles.bio TEXT` (spec §3.11), then fix Finding 6: `profile/[username]/page.tsx:111` renders an
 "Edit profile" button linking to `/profile/[username]/edit`, and **that route doesn't exist** — the
