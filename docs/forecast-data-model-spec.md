@@ -817,24 +817,24 @@ the id will not arrive that way.
 *Test:* `e2e/comments.spec.ts` → "a user can delete their own comment" reloads first, with a comment
 explaining why.
 
-### 12.4 An over/under push extends the winner's streak
+### 12.4 An over/under push extended the winner's streak — ✅ FIXED in 0028
 
-A push (the result lands exactly on the line) returns the user's stake and
-nothing more. `resolve_ou_market` correctly declines to increment `wins` for it —
-but it stores the position as `status = 'won'` with `payout = coins_wagered`,
-because `position_status` has no `push` value. The `update_user_streaks` trigger
-(0020) keys off the status becoming `'won'`, so a push **increments
-`win_streak`**. A user who has won nothing can build a hot streak, appear on the
-trending Stat Leaders board, and displace a real winner.
+A push returns the stake and nothing more. `resolve_ou_market` correctly declined to increment
+`wins`, but stored the position as `status = 'won'` (there is no `push` value in `position_status`),
+and the `update_user_streaks` trigger keyed off that status alone — so a tie extended a win streak
+and could put a user who had won nothing onto the trending Stat Leaders card.
 
-*Fix (needs a design call, hence not taken):* either add `'push'` to
-`position_status` and teach both the resolver and the trigger about it — cleaner,
-but it touches an enum other code reads — or have the trigger treat
-`payout = coins_wagered` as neutral, which is less invasive but relies on an
-implicit convention.
-*Test:* `e2e/betting-ou.spec.ts` → "an exact tie is a push" currently asserts
-`win_streak === 1`, pinning the wrong behaviour with a comment. Flip it to `0`
-when the fix lands.
+**Fixed in `0028_ou_push_streak.sql`** by teaching the trigger to recognise a push:
+`markets.resolution_value = positions.ou_line_at_bet`, which is the resolver's own test, and is
+readable because `resolve_ou_market` writes `resolution_value` before the position loop. Both streaks
+are left untouched — a push is a no-result. Adding a `'push'` enum value was rejected as the fix
+here: it is the better data model but every position filter in the UI would need to learn it, and
+pushes would silently vanish from bet history until they did. Inferring a push from
+`payout = coins_wagered` was rejected as unsound — a binary win at long odds can round to exactly the
+stake.
+
+*Still open:* a push produces no notification and no activity entry, so the user sees a refund with
+no explanation. Worth folding into whatever ships alongside 0026's resolution notifications.
 
 ### 12.3 `resolve_market` never validates `p_admin_id`
 

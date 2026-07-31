@@ -12,7 +12,9 @@ import {
 import {
   createMarket,
   loadSeededUsers,
+  placeBetAs,
   placeOuBetAs,
+  resolveMarketAs,
   resolveOuMarketAs,
   setCoins,
   setProfileFields,
@@ -226,21 +228,124 @@ test.describe("betting: over/under markets", () => {
     expect(await getCoins(userId("alice"))).toBe(1_000);
 
     const after = await getProfile(userId("alice"));
-    // `resolve_ou_market` deliberately does NOT increment `wins` for a push.
+    // `resolve_ou_market` deliberately does NOT increment `wins` for a push…
     expect(after.wins).toBe(0);
-
-    // …but it DOES extend the win streak, and that is a bug (spec §12.4).
-    // `update_user_streaks` (0020) keys off a position's status becoming 'won',
-    // and a push is stored as 'won' with payout == stake because there is no
-    // 'push' value in the position_status enum. So a tie — where the user won
-    // nothing — inflates their 🔥 Hot Streak and can put them on the Stat
-    // Leaders board.
-    //
-    // Pinned rather than asserted-as-correct: fixing it needs a migration and a
-    // design call (add a 'push' status, or have the trigger compare payout to
-    // stake). When that lands, this assertion fails and must be flipped to 0.
-    expect(after.win_streak).toBe(1);
+    // …and since 0028 the streak agrees with it. A push is a no-result: it
+    // neither extends a win streak nor breaks one. Before 0028 this was 1,
+    // because the position is stored as status='won' (position_status has no
+    // 'push' value) and the streak trigger keyed off that alone.
+    expect(after.win_streak).toBe(0);
     expect(after.loss_streak).toBe(0);
+  });
+
+  test("a push does not break an existing streak, and a real O/U win still counts", async () => {
+    // The 0028 push detection must be surgical: it has to leave a genuine win
+    // alone. This walks win → push → win and asserts the streak advances across
+    // the push rather than resetting or double-counting.
+    await setCoins("alice", 5_000);
+    await setProfileFields("alice", { wins: 0, win_streak: 0, loss_streak: 0 });
+
+    // 1. A real OVER win at line 2.5, result 5.
+    const winMarket = await createMarket({
+      marketType: "over_under",
+      ouLine: 2.5,
+      ouUnit: "pts",
+    });
+    await placeOuBetAs("alice", winMarket, "yes", 100);
+    await resolveOuMarketAs(winMarket, 5);
+    expect((await getProfile(userId("alice"))).win_streak).toBe(1);
+
+    // 2. A push — streak must hold at 1, not advance to 2 and not reset to 0.
+    const pushMarket = await createMarket({
+      marketType: "over_under",
+      ouLine: 4,
+      ouUnit: "pts",
+    });
+    await placeOuBetAs("alice", pushMarket, "yes", 100);
+    await resolveOuMarketAs(pushMarket, 4);
+    const mid = await getProfile(userId("alice"));
+    expect(mid.win_streak).toBe(1);
+    expect(mid.loss_streak).toBe(0);
+    expect(mid.wins).toBe(1); // the push added no win
+
+    // 3. Another real win — the streak continues from where it was.
+    const winMarket2 = await createMarket({
+      marketType: "over_under",
+      ouLine: 2.5,
+      ouUnit: "pts",
+    });
+    await placeOuBetAs("alice", winMarket2, "yes", 100);
+    await resolveOuMarketAs(winMarket2, 5);
+    const end = await getProfile(userId("alice"));
+    expect(end.win_streak).toBe(2);
+    expect(end.wins).toBe(2);
+  });
+
+  test("a push does not rescue a loss streak", async () => {
+    // The mirror case: a push must not reset a loss streak either.
+    await setCoins("alice", 5_000);
+    await setProfileFields("alice", { wins: 0, win_streak: 0, loss_streak: 0 });
+
+    const lossMarket = await createMarket({
+      marketType: "over_under",
+      ouLine: 10,
+      ouUnit: "pts",
+    });
+    await placeOuBetAs("alice", lossMarket, "yes", 100); // OVER 10, result 1
+    await resolveOuMarketAs(lossMarket, 1);
+    expect((await getProfile(userId("alice"))).loss_streak).toBe(1);
+
+    const pushMarket = await createMarket({
+      marketType: "over_under",
+      ouLine: 4,
+      ouUnit: "pts",
+    });
+    await placeOuBetAs("alice", pushMarket, "yes", 100);
+    await resolveOuMarketAs(pushMarket, 4);
+
+    const after = await getProfile(userId("alice"));
+    expect(after.loss_streak).toBe(1); // held, not cleared
+    expect(after.win_streak).toBe(0);
+  });
+
+  test("a binary win at long odds that rounds to the stake still counts", async () => {
+    // Guards the shortcut 0028 deliberately avoided: inferring a push from
+    // `payout == coins_wagered` would misread this genuine binary win as a tie.
+    //
+    // The position is seeded directly rather than via place_bet, because
+    // place_bet refuses a bet at this price ("Market price is at its limit").
+    // That guard is not what is under test here — the streak trigger's reaction
+    // to a win whose payout happens to equal the stake is.
+    //
+    // odds -2100 → multiplier (2100 + 100) / 2100 = 1.0476
+    // → ROUND(10 * 1.0476) = ROUND(10.476) = 10, exactly the stake.
+    await setCoins("alice", 5_000);
+    await setProfileFields("alice", { wins: 0, win_streak: 0, loss_streak: 0 });
+
+    const marketId = await createMarket({ yesPool: 100, noPool: 100 });
+    const { admin } = await import("./helpers/db");
+    const { error: seedError } = await admin.from("positions").insert({
+      market_id: marketId,
+      user_id: userId("alice"),
+      side: "yes",
+      coins_wagered: 10,
+      shares_bought: 20,
+      price_at_bet: 0.5,
+      yes_odds_at_bet: -2100,
+      status: "open",
+    });
+    if (seedError) throw new Error(`seeding long-odds position: ${seedError.message}`);
+
+    await resolveMarketAs(marketId, "yes");
+
+    const position = await getPosition(marketId, userId("alice"));
+    expect(position.status).toBe("won");
+    expect(position.payout).toBe(10);
+    expect(position.payout).toBe(position.coins_wagered); // the trap condition
+
+    // Still a WIN for streak purposes: 0028 keys off the O/U line, never off the
+    // payout amount, so this is unaffected.
+    expect((await getProfile(userId("alice"))).win_streak).toBe(1);
   });
 
   test("O/U markets have no probability chart and no pools", async ({ page }) => {
