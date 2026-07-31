@@ -28,12 +28,22 @@ test.describe("auth: login, onboarding, referral attribution", () => {
   test("submitting an email sends a magic link and shows the sent state", async ({
     page,
   }) => {
+    // A fresh address per run, deliberately. GoTrue enforces a per-ADDRESS send
+    // cooldown, so reusing a fixture email makes this fail with
+    // `over_email_send_rate_limit` ("you can only request this after N seconds")
+    // whenever the suite runs twice in quick succession — a failure that looks
+    // like a broken login form but is purely an environment limit. Which address
+    // is used is irrelevant to the behaviour under test.
+    const freshEmail = `e2e-otp-${Date.now()}@forecast.test`;
+
     await page.context().clearCookies();
     await page.goto("/login");
-    await page.getByTestId("login-email").fill(USERS.alice.email);
+    await page.getByTestId("login-email").fill(freshEmail);
     await page.getByTestId("login-submit").click();
     await expect(page.getByTestId("login-sent")).toBeVisible();
     await expect(page.getByText("Check your email")).toBeVisible();
+    // The address is echoed back, proving the form used what was typed.
+    await expect(page.getByText(freshEmail)).toBeVisible();
   });
 
   test("client-side validation rejects a malformed email without calling Supabase", async ({
@@ -140,8 +150,13 @@ test.describe("auth: login, onboarding, referral attribution", () => {
     await page.getByTestId("onboarding-submit").click();
 
     await expect(page).toHaveURL(/\/dashboard\/trending$/);
+
+    const profile = await getProfile(fresh.id);
     // Stored lowercased.
-    expect((await getProfile(fresh.id)).username).toBe(username);
+    expect(profile.username).toBe(username);
+    // The "1,000 coins credited!" copy on the onboarding screen is static text;
+    // assert the credit actually exists in the database, not just on screen.
+    expect(profile.coins).toBe(1_000);
   });
 
   test("onboarding rejects an invalid username and a taken one", async ({ page }) => {
@@ -213,9 +228,16 @@ test.describe("auth: login, onboarding, referral attribution", () => {
     const invitee = await createExtraUser("ref2");
     await setProfileFields(invitee.id, { username: null, referred_by: null });
 
+    // Scoped to the fixtures. Snapshotting every profile would also capture
+    // unrelated local rows and turn any concurrent change into a confusing
+    // failure of *this* test.
+    const watched = (["admin", "owner", "alice", "bob", "broke"] as const).map((k) =>
+      userId(k)
+    );
     const { data: before } = await admin
       .from("profiles")
       .select("id, coins")
+      .in("id", watched)
       .order("id");
 
     const token = await magicLinkTokenFor(invitee.email);
@@ -228,7 +250,11 @@ test.describe("auth: login, onboarding, referral attribution", () => {
 
     // record_referral RETURNs silently rather than raising, so assert on data:
     // nobody's balance moved.
-    const { data: after } = await admin.from("profiles").select("id, coins").order("id");
+    const { data: after } = await admin
+      .from("profiles")
+      .select("id, coins")
+      .in("id", watched)
+      .order("id");
     expect(after).toEqual(before);
     expect((await getProfile(invitee.id)).referred_by).toBeNull();
   });

@@ -15,6 +15,21 @@ test.describe("suggestions: submit, approve, reject", () => {
 
   test.beforeEach(async () => {
     await setCoins("bob", 1_000);
+
+    // The admin queue renders `.limit(50)` pending suggestions. Once the suite
+    // has been running a while there can be more than that, and the row this
+    // test needs falls off the page — a failure that looks like "approve is
+    // broken". Clear the fixtures' other pending suggestions so ours is visible.
+    // Scoped to fixture users, never a blanket delete.
+    const ids = (["admin", "owner", "alice", "bob", "broke"] as const).map((k) =>
+      userId(k)
+    );
+    const { error } = await admin
+      .from("market_suggestions")
+      .delete()
+      .eq("status", "pending")
+      .in("user_id", ids);
+    if (error) throw new Error(`clearing pending suggestions failed: ${error.message}`);
   });
 
   test("a user can submit a suggestion and see it listed as pending", async ({ page }) => {

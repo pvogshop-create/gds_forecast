@@ -1,6 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { loginAs } from "./helpers/auth";
-import { getComments, getNotifications, waitForCommentCount } from "./helpers/db";
+import {
+  getComments,
+  getNotifications,
+  waitForCommentCount,
+  waitForRealtime,
+} from "./helpers/db";
 import { USERS } from "./helpers/fixtures";
 import { createMarket, loadSeededUsers, userId } from "./helpers/seed";
 
@@ -189,8 +194,12 @@ test.describe("comments: posting, deleting, mentions, realtime", () => {
       await alicePage.goto(`/market/${marketId}`);
       await bobPage.goto(`/market/${marketId}`);
 
-      // Both subscribed; Bob starts with no comments visible.
       await expect(bobPage.getByTestId("comments-empty")).toBeVisible();
+
+      // Wait for Bob's channel to actually report SUBSCRIBED. A painted DOM is
+      // not a live subscription — sending before the handshake completes means
+      // the INSERT is never delivered and this fails intermittently.
+      await waitForRealtime(bobPage);
 
       await alicePage.getByTestId("comment-input").fill("Realtime hello");
       await alicePage.getByTestId("comment-submit").click();

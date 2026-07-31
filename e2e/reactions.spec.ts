@@ -55,7 +55,18 @@ test.describe("market reactions", () => {
     const card = await openCard(page, marketId);
 
     const fire = card.locator('[data-testid="reaction-button"][data-emoji="🔥"]');
-    await fire.click();
+
+    // Wait on the POST itself. The component updates optimistically and swallows
+    // request errors, so clicking and checking the DOM proves only that React
+    // ran — a failed write would still show "1" on screen and then fail later in
+    // the DB poll with no indication of why.
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (r) => r.url().includes(`/api/markets/${marketId}/react`) && r.request().method() === "POST"
+      ),
+      fire.click(),
+    ]);
+    expect(response.status()).toBe(200);
 
     await expect(fire).toHaveAttribute("data-count", "1");
     await expect(fire).toHaveAttribute("data-reacted", "true");

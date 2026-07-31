@@ -271,26 +271,104 @@ test.describe("betting: binary markets", () => {
     const marketId = await createMarket({ yesPool: 100, noPool: 100 });
     await loginAs(page, "alice");
 
-    // First bet at p=0.5 → -100.
+    // First bet at p=0.5 → -100. The side is selected explicitly: YES happens to
+    // be the default, but `yes_odds_at_bet` is stored side-independently (it is
+    // always prob_to_american_odds of the market's probability), so an assertion
+    // on it would NOT notice if the bet silently landed on NO.
     await page.goto(`/market/${marketId}`);
+    await page.getByTestId("bet-side-yes").click();
     await page.getByTestId("bet-amount-input").fill("100");
     await page.getByTestId("bet-submit").click();
     await expect(page.getByTestId("bet-success")).toBeVisible();
 
     // Market is now 200/100 → p=0.6667 → prob_to_american_odds(0.6667) = -200.
     await page.reload();
+    await page.getByTestId("bet-side-yes").click();
     await page.getByTestId("bet-amount-input").fill("100");
     await page.getByTestId("bet-submit").click();
     await expect(page.getByTestId("bet-success")).toBeVisible();
 
     const positions = await getPositions(marketId, userId("alice"));
     expect(positions).toHaveLength(2);
+    // Side is asserted separately from odds, for the reason above.
+    expect(positions.map((p) => p.side)).toEqual(["yes", "yes"]);
+    // Each bet keeps its own locked odds — that's the whole point of the model.
     expect(positions[0]!.yes_odds_at_bet).toBe(-100);
     expect(positions[1]!.yes_odds_at_bet).toBe(-200);
-    // Each bet keeps its own locked odds — that's the whole point of the model.
-    expect(positions[0]!.yes_odds_at_bet).not.toBe(positions[1]!.yes_odds_at_bet);
 
     expect(await getCoins(userId("alice"))).toBe(800);
+  });
+
+  test("a fractional payout is rounded, not truncated", async ({ page }) => {
+    // Every other payout in the suite lands on an exact integer (2.0x, 2.78x,
+    // 1.5x), so ROUND vs FLOOR vs TRUNC are indistinguishable. This case is
+    // deliberately fractional:
+    //   150/100 pool → p = 0.6 → prob_to_american_odds(0.6) = -150
+    //   multiplier = (150 + 100) / 150 = 1.6666…
+    //   100 * 1.6666… = 166.67 → ROUND = 167   (FLOOR/TRUNC would give 166)
+    const marketId = await createMarket({ yesPool: 150, noPool: 100 });
+    await loginAs(page, "alice");
+    await page.goto(`/market/${marketId}`);
+
+    await page.getByTestId("bet-side-yes").click();
+    await page.getByTestId("bet-amount-input").fill("100");
+    await expect(page.getByTestId("bet-preview-payout")).toHaveAttribute(
+      "data-payout",
+      "167"
+    );
+    await page.getByTestId("bet-submit").click();
+    await expect(page.getByTestId("bet-success")).toBeVisible();
+
+    const position = await getPosition(marketId, userId("alice"));
+    expect(position.yes_odds_at_bet).toBe(-150);
+
+    const { resolveMarketAs } = await import("./helpers/seed");
+    await resolveMarketAs(marketId, "yes");
+
+    // The exact assertion that distinguishes ROUND from FLOOR.
+    expect((await getPosition(marketId, userId("alice"))).payout).toBe(167);
+    expect(await getCoins(userId("alice"))).toBe(1_000 - 100 + 167);
+  });
+
+  test("the calibration cap steps 200 → 300 → 400 across the first three bets", async ({
+    page,
+  }) => {
+    // CALIBRATION_STEPS is [200, 300, 400], indexed by the market's existing bet
+    // count. Only the first step was covered before, so a regression in the 2nd
+    // or 3rd tier would have gone unnoticed.
+    const marketId = await createMarket({ yesPool: 100, noPool: 100 });
+    await setCoins("alice", 5_000);
+    await loginAs(page, "alice");
+
+    const steps = [200, 300, 400] as const;
+    for (const [index, cap] of steps.entries()) {
+      await page.goto(`/market/${marketId}`);
+      await expect(page.getByTestId("calibration-banner")).toHaveAttribute(
+        "data-effective-max",
+        String(cap)
+      );
+
+      // One over the cap is refused by the server…
+      const tooBig = await page.request.post(`/api/markets/${marketId}/bet`, {
+        data: { side: "yes", coins: cap + 1 },
+      });
+      expect(tooBig.status()).toBe(400);
+      expect((await tooBig.json()).error).toBe(
+        `Calibration period: max ${cap} coins on this bet.`
+      );
+      expect(await getPositions(marketId)).toHaveLength(index);
+
+      // …and exactly the cap is accepted, advancing to the next tier.
+      const atCap = await page.request.post(`/api/markets/${marketId}/bet`, {
+        data: { side: "yes", coins: cap },
+      });
+      expect(atCap.ok()).toBe(true);
+      expect(await getPositions(marketId)).toHaveLength(index + 1);
+    }
+
+    // After three bets the ramp is over and the banner is gone.
+    await page.goto(`/market/${marketId}`);
+    await expect(page.getByTestId("calibration-banner")).toHaveCount(0);
   });
 
   test("an existing position is surfaced on the panel", async ({ page }) => {

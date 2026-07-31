@@ -75,10 +75,20 @@ test.describe("admin dashboard", () => {
     await page.goto("/admin?tab=create");
     // `title` is a required input, so the form will not submit.
     await expect(page.getByTestId("admin-create-title")).toHaveAttribute("required", "");
-    const { data: before } = await admin.from("markets").select("id");
+
+    // Fill everything EXCEPT the title, so the only reason submission fails is
+    // the missing title, and look for that specific market rather than counting
+    // the whole table (which is racy and would also pass if a row were created
+    // and immediately deleted).
+    const marker = `[E2E] Titleless ${Date.now()}`;
+    await page.getByTestId("admin-create-description").fill(marker);
     await page.getByTestId("admin-create-submit").click();
-    const { data: after } = await admin.from("markets").select("id");
-    expect(after!.length).toBe(before!.length);
+
+    const { data: created } = await admin
+      .from("markets")
+      .select("id")
+      .eq("description", marker);
+    expect(created ?? []).toHaveLength(0);
   });
 
   test("an admin can close and then reopen a market", async ({ page }) => {
@@ -154,11 +164,19 @@ test.describe("admin dashboard", () => {
   });
 
   test("the incidents tab renders its empty state when nothing is open", async ({ page }) => {
-    // Clear any reports left by other specs so the empty state is reachable.
+    // Scoped to this suite's own users. An unscoped
+    // `.in("status", ["voting","passed"])` would delete reports belonging to
+    // any other data in the database, including ones another spec is mid-way
+    // through asserting on if the file order ever changes.
+    const { loadSeededUsers: _load, userId } = await import("./helpers/seed");
+    const ids = (["admin", "owner", "alice", "bob", "broke"] as const).map((k) =>
+      userId(k)
+    );
     await admin
       .from("incident_reports")
       .delete()
-      .in("status", ["voting", "passed"]);
+      .in("status", ["voting", "passed"])
+      .in("reporter_id", ids);
     await page.goto("/admin?tab=incidents");
     await expect(page.getByText("No active incident reports.")).toBeVisible();
   });

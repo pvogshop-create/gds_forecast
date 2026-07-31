@@ -224,15 +224,16 @@ test.describe("flagship: the core betting loop", () => {
     const types = notifications.map((n) => n.type);
     expect(types).toContain("payout_received");
 
-    // Asserting CURRENT behaviour deliberately: `resolve_market` (0007) emits
-    // exactly one notification, `payout_received`, and only to winners. The
-    // `market_resolved` enum value is declared in 0002 but is never inserted by
-    // any migration or any code path — so losers are told nothing at all when a
-    // market they bet on resolves. Spec §10.6 claimed both notifications fire;
-    // that was aspirational and has been corrected.
+    // Alice is the only bettor in this loop and she WON, so `market_resolved` —
+    // which 0026 added for losing positions — must not appear for her. A winner
+    // gets `payout_received` and nothing else.
     //
-    // This assertion pins the gap rather than papering over it: if someone adds
-    // the missing notification, this line fails and forces a deliberate update.
+    // This line previously pinned a bug: before 0026 the value was inserted
+    // nowhere at all, so losers were told nothing when a market they bet on
+    // resolved. The assertion is unchanged and the reason for it is completely
+    // different, which is worth stating plainly — read without this note it looks
+    // like the old gap is still open. Loser-side coverage lives in
+    // e2e/resolution-payout.spec.ts, where there is somebody to lose.
     expect(types).not.toContain("market_resolved");
 
     const payout = notifications.find((n) => n.type === "payout_received")!;

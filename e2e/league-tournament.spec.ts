@@ -265,26 +265,7 @@ test.describe("league tournament: weeks, buy-ins, scoring, payout", () => {
     expect((await getActiveWeek(id))!.id).toBe(second.week_id);
   });
 
-  test("the cron endpoint requires its bearer secret", async ({ page }) => {
-    // No Authorization header at all.
-    const bare = await page.request.get("/api/cron/league-weeks");
-    expect(bare.status()).toBe(401);
-
-    // Wrong secret.
-    const wrong = await page.request.get("/api/cron/league-weeks", {
-      headers: { Authorization: "Bearer nope" },
-    });
-    expect(wrong.status()).toBe(401);
-  });
-
-  test("the cron endpoint is reachable with the right secret", async ({ page }) => {
-    const { CRON_SECRET } = await import("./helpers/env");
-    // Before the proxy.ts fix this returned a 307 HTML redirect to /login,
-    // because /api/cron was not in PUBLIC_ROUTES — so the job had never run.
-    const res = await page.request.get("/api/cron/league-weeks", {
-      headers: { Authorization: `Bearer ${CRON_SECRET}` },
-    });
-    expect(res.ok()).toBe(true);
-    expect((await res.json()).ok).toBe(true);
-  });
+  // The /api/cron/* auth boundary (missing secret, wrong secret, session-instead
+  // -of-secret, and the valid-secret happy path) is asserted once in
+  // authorization.spec.ts rather than duplicated here.
 });

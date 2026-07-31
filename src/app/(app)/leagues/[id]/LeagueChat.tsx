@@ -24,6 +24,9 @@ export function LeagueChat({
   const [input, setInput] = useState("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // See MarketComments: lets an E2E test wait for the channel to be live before
+  // sending the message it expects the other browser context to receive.
+  const [realtimeReady, setRealtimeReady] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Scroll to bottom whenever messages change
@@ -68,7 +71,9 @@ export function LeagueChat({
           setMessages((prev) => [...prev, incoming]);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        setRealtimeReady(status === "SUBSCRIBED");
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -110,6 +115,7 @@ export function LeagueChat({
 
   return (
     <div
+      data-realtime-ready={realtimeReady}
       className="rounded-xl overflow-hidden"
       style={{
         backgroundColor: "var(--color-bg-card)",

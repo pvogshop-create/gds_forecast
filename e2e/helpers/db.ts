@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   SERVICE_ROLE_KEY,
@@ -133,6 +134,15 @@ export async function getPositions(
   return (data ?? []) as PositionRow[];
 }
 
+/**
+ * The user's MOST RECENT position on a market.
+ *
+ * A user may hold several positions on one market — `place_bet` inserts a new
+ * row per bet rather than amending one — so this deliberately returns the
+ * newest. Tests that mean "the only position" should assert
+ * `getPositions(...)` has length 1 first; use `getPositions` directly whenever
+ * more than one bet is in play, or the assertion silently grades the wrong row.
+ */
 export async function getPosition(
   marketId: string,
   userId: string
@@ -394,4 +404,21 @@ export async function waitForReactionCount(
     );
   }
   return rows;
+}
+
+/**
+ * Wait until a component's Supabase Realtime channel reports SUBSCRIBED.
+ *
+ * `toBeVisible()` proves the DOM painted; it says nothing about whether the
+ * postgres_changes handshake has completed. Subscribing happens asynchronously
+ * after mount, so a test that triggers its event before this resolves will
+ * simply never receive it — an intermittent failure that shows up first on a
+ * slower machine. Any cross-context realtime test must await this on the
+ * *receiving* page before the sending page acts.
+ */
+export async function waitForRealtime(page: Page, timeoutMs = 20_000): Promise<void> {
+  await page
+    .locator('[data-realtime-ready="true"]')
+    .first()
+    .waitFor({ state: "attached", timeout: timeoutMs });
 }

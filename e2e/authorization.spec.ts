@@ -137,7 +137,7 @@ test.describe("authorization", () => {
   });
 
   test("a normal user cannot mark another user's notification as read", async () => {
-    const { data: notif } = await admin
+    const { data: notif, error: seedError } = await admin
       .from("notifications")
       .insert({
         user_id: userId("bob"),
@@ -147,14 +147,25 @@ test.describe("authorization", () => {
       })
       .select("id")
       .single();
+    // Without this, a failed insert surfaces as "Cannot read properties of null"
+    // on the next line instead of naming the actual problem.
+    if (seedError || !notif) {
+      throw new Error(`seeding bob's notification failed: ${seedError?.message}`);
+    }
 
     const alice = await anonClientFor(USERS.alice.email);
-    await alice.from("notifications").update({ is_read: true }).eq("id", notif!.id);
+    const { error: updateError } = await alice
+      .from("notifications")
+      .update({ is_read: true })
+      .eq("id", notif.id);
+    // RLS filters rather than errors on UPDATE, so no error is expected — the
+    // proof is that the row below is untouched.
+    expect(updateError).toBeNull();
 
     const { data: after } = await admin
       .from("notifications")
       .select("is_read")
-      .eq("id", notif!.id)
+      .eq("id", notif.id)
       .single();
     // notifications_update_own is `auth.uid() = user_id`, so nothing changed.
     expect(after!.is_read).toBe(false);
@@ -181,6 +192,48 @@ test.describe("authorization", () => {
     });
     expect(res.status()).toBe(400);
     expect((await res.json()).error).toContain("@forecast.test");
+  });
+
+  test("market_probability_history is readable by authenticated users today", async () => {
+    // Today every authenticated user may read price history for every market —
+    // markets are all public, so that is correct. This pins the CURRENT rule so
+    // that migration 0028 (tier-aware RLS) cannot quietly leave this table
+    // behind: it is one of the six market-joined tables that must become
+    // tier-scoped, and it is the one most easily forgotten because nothing in
+    // the UI reads it directly except the chart.
+    const marketId = await createMarket({ yesPool: 100, noPool: 100 });
+    const { placeBetAs } = await import("./helpers/seed");
+    await placeBetAs("alice", marketId, "yes", 50);
+
+    const bob = await anonClientFor(USERS.bob.email);
+    const { data, error } = await bob
+      .from("market_probability_history")
+      .select("*")
+      .eq("market_id", marketId);
+
+    expect(error).toBeNull();
+    expect((data ?? []).length).toBeGreaterThan(0);
+    // When 0028 lands, a non-viewer must get [] here for a tier-scoped market.
+  });
+
+  test("a non-member cannot enumerate a private league's membership", async () => {
+    const { createLeague } = await import("./helpers/seed");
+    const { id } = await createLeague({ creator: "owner", members: ["bob"] });
+
+    // Direct-by-id read as an outsider. RLS filters rather than errors, so the
+    // proof is an empty array even though the rows demonstrably exist.
+    const alice = await anonClientFor(USERS.alice.email);
+    const { data, error } = await alice
+      .from("league_members")
+      .select("*")
+      .eq("league_id", id);
+
+    expect(error).toBeNull();
+    expect(data).toEqual([]);
+
+    // …and they really are there when read with the service role.
+    const { getLeagueMembers } = await import("./helpers/db");
+    expect(await getLeagueMembers(id)).toHaveLength(2);
   });
 
   // ─── Play-money guardrail ────────────────────────────────────────────────

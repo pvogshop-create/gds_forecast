@@ -197,6 +197,10 @@ test.describe("leagues: create, join, membership, chat, standings", () => {
       await ownerPage.goto(`/leagues/${id}`);
       await alicePage.goto(`/leagues/${id}`);
 
+      // Alice is the receiver; wait for her channel before the owner sends.
+      const { waitForRealtime } = await import("./helpers/db");
+      await waitForRealtime(alicePage);
+
       await ownerPage.getByTestId("league-chat-input").fill("First message in the league");
       await ownerPage.getByTestId("league-chat-send").click();
 

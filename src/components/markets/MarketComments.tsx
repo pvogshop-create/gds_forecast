@@ -43,6 +43,12 @@ export function MarketComments({
   // @mention autocomplete state
   const [suggestions, setSuggestions] = useState<MentionSuggestion[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  // Exposed to the DOM so an E2E test can wait for the realtime channel to be
+  // live before triggering the event it expects to receive. Subscribing is
+  // asynchronous and finishes after mount, so "the page rendered" is not the
+  // same as "this client will receive INSERTs" — acting too early drops the
+  // event and the test fails intermittently.
+  const [realtimeReady, setRealtimeReady] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -105,7 +111,9 @@ export function MarketComments({
           setComments((prev) => prev.filter((c) => c.id !== payload.old.id));
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        setRealtimeReady(status === "SUBSCRIBED");
+      });
 
     return () => {
       supabase.removeChannel(channel);
@@ -230,6 +238,7 @@ export function MarketComments({
 
   return (
     <div
+      data-realtime-ready={realtimeReady}
       className="rounded-xl overflow-hidden"
       style={{
         backgroundColor: "var(--color-bg-card)",

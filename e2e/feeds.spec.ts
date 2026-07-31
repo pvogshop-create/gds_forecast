@@ -1,13 +1,14 @@
 import { expect, test } from "@playwright/test";
 import { loginAs } from "./helpers/auth";
-import { createMarket, loadSeededUsers, setMarketStatus } from "./helpers/seed";
+import { createMarket, expireMarket, loadSeededUsers } from "./helpers/seed";
 
 /**
  * The four dashboard feeds, category scoping, and the Active/Completed toggle.
  *
  * Note every seeded market here gets a FUTURE resolution_date. Each dashboard
  * calls `close_expired_markets()` on render, so a past-dated open market would
- * silently flip to `closed` and move itself to the Completed tab mid-test.
+ * silently flip to `closed` and move itself to the Completed tab mid-test. The
+ * last test in this file turns that hazard into the thing under test.
  */
 test.describe("feeds: dashboards, categories, active/completed", () => {
   let sportsId: string;
@@ -172,7 +173,19 @@ test.describe("feeds: dashboards, categories, active/completed", () => {
     await expect(page.getByText("No completed social markets yet.")).toBeVisible();
   });
 
-  test("a closed market moves from Active to Completed", async ({ page }) => {
+  test("a market that passes its deadline moves from Active to Completed", async ({
+    page,
+  }) => {
+    // Drives the REAL mechanism rather than shortcutting it. This test used to
+    // call `setMarketStatus(id, "closed")`, which asserts the feed can render a
+    // closed market but skips the only thing that produces `closed` in
+    // production: each dashboard page calls `close_expired_markets()` on render.
+    //
+    // So instead: seed it live, confirm it is in Active, push its deadline into
+    // the past, and let the next dashboard render close it. The status change is
+    // a side effect of the page load, exactly as it is for a real user.
+    // Boundary behaviour of the function itself is covered in
+    // e2e/market-lifecycle.spec.ts.
     const id = await createMarket({
       title: "Feed closing market",
       category: "actions",
@@ -184,7 +197,7 @@ test.describe("feeds: dashboards, categories, active/completed", () => {
       page.locator(`[data-testid="market-card"][data-market-id="${id}"]`)
     ).toBeVisible();
 
-    await setMarketStatus(id, "closed");
+    await expireMarket(id);
 
     await page.goto("/dashboard/actions");
     await expect(

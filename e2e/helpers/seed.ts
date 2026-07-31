@@ -1,4 +1,4 @@
-import { admin, num } from "./db";
+import { admin } from "./db";
 import { TEST_PASSWORD } from "./env";
 import { ALL_TEST_EMAILS, USERS, type UserKey } from "./fixtures";
 
@@ -38,6 +38,18 @@ export function userId(key: UserKey): string {
 
 export function tryUserId(key: UserKey): string | undefined {
   return seededIds.get(key);
+}
+
+/**
+ * Several helpers accept either a fixture key or a raw uuid. Resolve by testing
+ * membership in the known key set — an earlier version sniffed for a hyphen,
+ * which would silently mis-resolve the moment any UserKey contained one
+ * ("league-owner", "super-admin").
+ */
+function resolveUserId(user: UserKey | string): string {
+  return (Object.keys(USERS) as string[]).includes(user)
+    ? userId(user as UserKey)
+    : user;
 }
 
 async function findAuthUserByEmail(email: string): Promise<string | null> {
@@ -116,20 +128,48 @@ export async function seedUsers(): Promise<SeededUser[]> {
   return out;
 }
 
-/** Repopulate the id cache in a worker process without recreating anything. */
+/**
+ * Repopulate the id cache for this worker, re-seeding anything that has gone
+ * missing.
+ *
+ * Called from every spec's `beforeAll`. It must be self-healing rather than
+ * strict, for two reasons:
+ *
+ *  - Playwright starts a FRESH WORKER after a test failure, so module state
+ *    (including this cache) is discarded and rebuilt mid-run. A `beforeAll` that
+ *    throws in that situation converts one real failure into a cascade of
+ *    unrelated ones across every remaining file, burying the actual defect.
+ *  - The fixtures live in a database the whole suite shares. Anything that
+ *    removes an auth user — a crashed run's teardown, a manual reset, an
+ *    interrupted `supabase db reset` — leaves the rest of the suite unable to
+ *    log in at all.
+ *
+ * `seedUsers()` is idempotent (it adopts an existing user and resets its
+ * profile), so recovering costs one round trip and yields exactly the state the
+ * specs expect.
+ */
 export async function loadSeededUsers(): Promise<void> {
   if (seededIds.size === Object.keys(USERS).length) return;
+
   const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (error) throw new Error(`listUsers failed: ${error.message}`);
+
+  const missing: UserKey[] = [];
   for (const key of Object.keys(USERS) as UserKey[]) {
     const found = data.users.find((u) => u.email === USERS[key].email);
-    if (!found) {
-      throw new Error(
-        `Fixture ${USERS[key].email} is missing. Global setup did not run, or the ` +
-          `DB was reset mid-run.`
-      );
+    if (found) {
+      seededIds.set(key, found.id);
+    } else {
+      missing.push(key);
     }
-    seededIds.set(key, found.id);
+  }
+
+  if (missing.length > 0) {
+    console.warn(
+      `[e2e] re-seeding missing fixture(s): ${missing.join(", ")} — ` +
+        `something removed them mid-run.`
+    );
+    await seedUsers();
   }
 }
 
@@ -140,7 +180,7 @@ export async function loadSeededUsers(): Promise<void> {
  * money assertions do not depend on what a previous test spent.
  */
 export async function setCoins(user: UserKey | string, coins: number): Promise<void> {
-  const id = typeof user === "string" && user.includes("-") ? user : userId(user as UserKey);
+  const id = resolveUserId(user);
   const { error } = await admin.from("profiles").update({ coins }).eq("id", id);
   if (error) throw new Error(`setCoins failed: ${error.message}`);
 }
@@ -149,7 +189,7 @@ export async function setProfileFields(
   user: UserKey | string,
   fields: Record<string, unknown>
 ): Promise<void> {
-  const id = typeof user === "string" && user.includes("-") ? user : userId(user as UserKey);
+  const id = resolveUserId(user);
   const { error } = await admin.from("profiles").update(fields).eq("id", id);
   if (error) throw new Error(`setProfileFields failed: ${error.message}`);
 }
@@ -159,7 +199,7 @@ export async function resetAllProfiles(): Promise<void> {
   for (const key of Object.keys(USERS) as UserKey[]) {
     const id = tryUserId(key);
     if (!id) continue;
-    await admin
+    const { error } = await admin
       .from("profiles")
       .update({
         coins: USERS[key].coins,
@@ -170,6 +210,9 @@ export async function resetAllProfiles(): Promise<void> {
         last_daily_claim: null,
       })
       .eq("id", id);
+    // Unchecked, a failed reset leaves the wrong starting balance and the next
+    // exact-value money assertion fails as if the app were broken.
+    if (error) throw new Error(`resetAllProfiles(${key}) failed: ${error.message}`);
   }
 }
 
@@ -178,7 +221,7 @@ export async function resetAllProfiles(): Promise<void> {
 export interface CreateMarketOptions {
   title?: string;
   description?: string;
-  category?: "sports" | "social" | "actions" | "trending";
+  category?: "sports" | "social" | "actions";
   status?: "open" | "closed" | "resolved_yes" | "resolved_no" | "cancelled";
   /** Binary pools. Defaults 100/100 → yes_probability 0.5000. */
   yesPool?: number;
@@ -214,7 +257,9 @@ export async function createMarket(opts: CreateMarketOptions = {}): Promise<stri
   } = opts;
 
   const isOu = marketType === "over_under";
-  // O/U markets carry no pools — place_ou_bet moves the line instead.
+  // O/U markets open with empty pools; place_ou_bet then adds each stake to the
+  // bet side's pool (so pools tally volume) *and* moves the line, which is what
+  // actually prices the market.
   const yesPool = opts.yesPool ?? (isOu ? 0 : 100);
   const noPool = opts.noPool ?? (isOu ? 0 : 100);
 
@@ -254,6 +299,25 @@ export async function createMarket(opts: CreateMarketOptions = {}): Promise<stri
 export async function setMarketStatus(marketId: string, status: string): Promise<void> {
   const { error } = await admin.from("markets").update({ status }).eq("id", marketId);
   if (error) throw new Error(`setMarketStatus failed: ${error.message}`);
+}
+
+/**
+ * Push a market's deadline into the past WITHOUT touching its status.
+ *
+ * Prefer this over `setMarketStatus(id, "closed")` when what you actually mean is
+ * "this market has expired": it leaves the market genuinely open-but-past-due, so
+ * the real `close_expired_markets()` path is what flips it — either on the next
+ * dashboard render or on an explicit RPC call. `setMarketStatus` jumps straight
+ * to the end state and skips the mechanism entirely.
+ */
+export async function expireMarket(marketId: string, daysAgo = 1): Promise<void> {
+  const { error } = await admin
+    .from("markets")
+    .update({
+      resolution_date: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString(),
+    })
+    .eq("id", marketId);
+  if (error) throw new Error(`expireMarket failed: ${error.message}`);
 }
 
 // ─── Bets and resolution ────────────────────────────────────────────────────
@@ -469,7 +533,7 @@ export async function castVoteAs(
   reportId: string,
   agrees: boolean
 ): Promise<Record<string, unknown>> {
-  const id = typeof user === "string" && user.includes("-") ? user : userId(user as UserKey);
+  const id = resolveUserId(user);
   const { data, error } = await admin.rpc("cast_incident_vote", {
     p_report_id: reportId,
     p_user_id: id,
@@ -601,20 +665,49 @@ export async function cleanupAll(): Promise<void> {
   );
   const testUserIds = testUsers.map((u) => u.id);
 
+  // Every delete is checked. A cleanup that fails quietly is worse than one that
+  // crashes: the next run starts on stale data and fails somewhere unrelated,
+  // which is exactly the confusing-failure mode the readers in db.ts avoid.
+  async function purge(
+    label: string,
+    run: () => PromiseLike<{ error: { message: string } | null }>
+  ): Promise<void> {
+    const { error } = await run();
+    if (error) throw new Error(`cleanup ${label} failed: ${error.message}`);
+  }
+
   // Markets by title prefix — catches any created before a crash, and any whose
   // creator was already removed.
-  await admin.from("markets").delete().like("title", `${E2E_PREFIX}%`);
-  await admin.from("leagues").delete().like("name", `${E2E_PREFIX}%`);
-  await admin.from("market_suggestions").delete().like("title", `${E2E_PREFIX}%`);
+  await purge("markets by prefix", () =>
+    admin.from("markets").delete().like("title", `${E2E_PREFIX}%`)
+  );
+  await purge("leagues by prefix", () =>
+    admin.from("leagues").delete().like("name", `${E2E_PREFIX}%`)
+  );
+  await purge("suggestions by prefix", () =>
+    admin.from("market_suggestions").delete().like("title", `${E2E_PREFIX}%`)
+  );
 
   if (testUserIds.length > 0) {
     // Markets/leagues owned by a fixture but somehow unprefixed.
-    await admin.from("markets").delete().in("creator_id", testUserIds);
-    await admin.from("leagues").delete().in("creator_id", testUserIds);
-    await admin.from("notifications").delete().in("user_id", testUserIds);
-    await admin.from("activity_feed").delete().in("user_id", testUserIds);
-    await admin.from("market_suggestions").delete().in("user_id", testUserIds);
-    await admin.from("incident_reports").delete().in("reporter_id", testUserIds);
+    await purge("markets by creator", () =>
+      admin.from("markets").delete().in("creator_id", testUserIds)
+    );
+    await purge("leagues by creator", () =>
+      admin.from("leagues").delete().in("creator_id", testUserIds)
+    );
+    await purge("notifications", () =>
+      admin.from("notifications").delete().in("user_id", testUserIds)
+    );
+    await purge("activity_feed", () =>
+      admin.from("activity_feed").delete().in("user_id", testUserIds)
+    );
+    await purge("suggestions by user", () =>
+      admin.from("market_suggestions").delete().in("user_id", testUserIds)
+    );
+    await purge("incident_reports", () =>
+      admin.from("incident_reports").delete().in("reporter_id", testUserIds)
+    );
   }
 
   for (const u of testUsers) {
@@ -628,4 +721,3 @@ export async function cleanupAll(): Promise<void> {
   seededIds.clear();
 }
 
-export { num };

@@ -119,7 +119,11 @@ test.describe("market detail page", () => {
   });
 
   test("the reaction row renders all five emoji for a signed-in user", async ({ page }) => {
-    const marketId = await createMarket();
+    // Pinned with a large pool for the same reason as reactions.spec.ts: the
+    // feeds order by yes_pool DESC and take a limited number, so a default
+    // 100/100 market is not guaranteed to be on the page once the rest of the
+    // suite has created markets.
+    const marketId = await createMarket({ yesPool: 400_000, noPool: 400_000 });
     await loginAs(page, "alice");
     await page.goto(`/market/${marketId}`);
     // Reactions live on the card, which the detail page does not render — assert

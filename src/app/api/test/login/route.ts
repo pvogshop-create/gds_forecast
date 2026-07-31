@@ -72,9 +72,12 @@ export async function POST(request: NextRequest) {
 
   // Confirm the fixture exists before attempting a sign-in, so a seeding bug
   // reports as "user not seeded" rather than an opaque invalid-credentials error.
+  // Matches the seeder's page size (e2e/helpers/seed.ts). A smaller cap here
+  // would make an existing fixture look missing once a local database has
+  // accumulated enough users, and report a misleading "did global setup run?".
   const { data: list, error: listError } = await admin.auth.admin.listUsers({
     page: 1,
-    perPage: 200,
+    perPage: 1000,
   });
   if (listError) {
     return NextResponse.json({ error: listError.message }, { status: 500 });

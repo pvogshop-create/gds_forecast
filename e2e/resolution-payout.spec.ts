@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { getCoins, getMarket, getNotifications, getPosition, getProfile } from "./helpers/db";
+import {
+  getCoins,
+  getMarket,
+  getNotifications,
+  getPosition,
+  getPositions,
+  getProfile,
+} from "./helpers/db";
 import {
   createMarket,
   loadSeededUsers,
@@ -104,7 +111,7 @@ test.describe("resolution and payouts", () => {
     expect(profile.loss_streak).toBe(1);
   });
 
-  test("a winner is notified; a loser is notified of nothing", async () => {
+  test("both the winner and the loser are told the market resolved", async () => {
     const marketId = await createMarket({ yesPool: 100, noPool: 100 });
     await placeBetAs("alice", marketId, "yes", 100);
     await placeBetAs("bob", marketId, "no", 100);
@@ -119,13 +126,71 @@ test.describe("resolution and payouts", () => {
     expect(aliceNotifs[0]!.title).toBe("You won! 🎉");
     expect(aliceNotifs[0]!.body).toContain("paid out 200 coins");
 
-    // Documenting a real gap rather than hiding it: resolve_market emits no
-    // notification at all for losing positions, so Bob is never told the market
-    // he bet on resolved. See the note added to spec §10.6.
+    // Until 0026 this asserted `toHaveLength(0)` — losers were told nothing at
+    // all, and the only signal that a market you bet on had resolved was your own
+    // balance moving. `market_resolved` had been sitting unused in the enum since
+    // 0002. The gap was pinned here deliberately so that closing it would fail
+    // this test rather than pass silently; this is that update.
     const bobNotifs = (await getNotifications(userId("bob"))).filter(
       (n) => (n.data as { market_id?: string } | null)?.market_id === marketId
     );
-    expect(bobNotifs).toHaveLength(0);
+    expect(bobNotifs).toHaveLength(1);
+    expect(bobNotifs[0]!.type).toBe("market_resolved");
+    expect(bobNotifs[0]!.title).toBe("Market resolved");
+    // Names the outcome, the side they were on, and what it cost them.
+    expect(bobNotifs[0]!.body).toContain("resolved YES");
+    expect(bobNotifs[0]!.body).toContain("Your NO position (100 coins)");
+    expect(bobNotifs[0]!.data).toMatchObject({
+      market_id: marketId,
+      outcome: "yes",
+      coins_wagered: 100,
+      positions: 1,
+    });
+
+    // The loser is told, and is still paid nothing.
+    expect(await getCoins(userId("bob"))).toBe(900);
+  });
+
+  test("several losing positions collapse into one notification with the summed stake", async () => {
+    // `positions` has no UNIQUE (market_id, user_id), so a user can lose three
+    // separate bets on one market. Winners get one notification per position
+    // (each pays at its own locked odds); losers get one per MARKET, because
+    // three consecutive "you lost" messages is a worse experience than three
+    // "you won" ones and there is no per-position number worth separating.
+    const marketId = await createMarket({ yesPool: 100, noPool: 100 });
+    await placeBetAs("alice", marketId, "yes", 100);
+    await placeBetAs("bob", marketId, "no", 50);
+    await placeBetAs("bob", marketId, "no", 30);
+    await placeBetAs("bob", marketId, "no", 20);
+
+    await resolveMarketAs(marketId, "yes");
+
+    const bobNotifs = (await getNotifications(userId("bob"))).filter(
+      (n) => (n.data as { market_id?: string } | null)?.market_id === marketId
+    );
+    expect(bobNotifs).toHaveLength(1);
+    expect(bobNotifs[0]!.body).toContain("Your NO position (100 coins)");
+    expect(bobNotifs[0]!.data).toMatchObject({ coins_wagered: 100, positions: 3 });
+
+    // All three positions really were resolved, not just the one that was named.
+    const bobPositions = await getPositions(marketId, userId("bob"));
+    expect(bobPositions).toHaveLength(3);
+    expect(bobPositions.every((p) => p.status === "lost")).toBe(true);
+    expect(bobPositions.every((p) => p.payout === 0)).toBe(true);
+  });
+
+  test("a market where nobody lost writes no resolution notification", async () => {
+    // The GROUP BY runs over a data-modifying CTE, so an empty losing set must
+    // produce zero rows rather than one aggregate row for nobody.
+    const marketId = await createMarket({ yesPool: 100, noPool: 100 });
+    await placeBetAs("alice", marketId, "yes", 100);
+
+    await resolveMarketAs(marketId, "yes");
+
+    const resolved = (await getNotifications(userId("alice"), "market_resolved")).filter(
+      (n) => (n.data as { market_id?: string } | null)?.market_id === marketId
+    );
+    expect(resolved).toHaveLength(0);
   });
 
   test("resolution records the resolving admin and appends a won activity entry", async () => {

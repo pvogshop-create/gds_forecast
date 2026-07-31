@@ -1,12 +1,21 @@
 import { expect, test } from "@playwright/test";
 import { loginAs } from "./helpers/auth";
-import { getCoins, getMarket, getPosition, getPositions, num } from "./helpers/db";
+import {
+  getCoins,
+  getMarket,
+  getNotifications,
+  getPosition,
+  getPositions,
+  getProfile,
+  num,
+} from "./helpers/db";
 import {
   createMarket,
   loadSeededUsers,
   placeOuBetAs,
   resolveOuMarketAs,
   setCoins,
+  setProfileFields,
   userId,
 } from "./helpers/seed";
 
@@ -27,7 +36,11 @@ test.describe("betting: over/under markets", () => {
   });
 
   test.beforeEach(async () => {
+    // Both actors, not just alice: one test stakes 250 as bob, and bob's balance
+    // is otherwise whatever earlier specs left it at. Resetting only the primary
+    // actor is how this file acquired an intermittent "Insufficient coins".
     await setCoins("alice", 1_000);
+    await setCoins("bob", 1_000);
   });
 
   test("an OVER bet pays 2x, locks the line, and pushes the line up", async ({ page }) => {
@@ -132,6 +145,67 @@ test.describe("betting: over/under markets", () => {
     expect(num(market.resolution_value!)).toBeCloseTo(5, 2);
   });
 
+  test("an O/U winner and an O/U loser are each notified", async () => {
+    // Before 0026 only the WIN branch of resolve_ou_market inserted anything, so
+    // an O/U loser was told nothing — the same gap as the binary path.
+    const marketId = await createMarket({
+      marketType: "over_under",
+      ouLine: 3.5,
+      ouUnit: "pts",
+    });
+    await placeOuBetAs("alice", marketId, "yes", 100); // OVER @ 3.5
+    await placeOuBetAs("bob", marketId, "no", 100); //   UNDER @ 4.0
+
+    await resolveOuMarketAs(marketId, 5); // above both → alice wins, bob loses
+
+    const aliceNotifs = (await getNotifications(userId("alice"))).filter(
+      (n) => (n.data as { market_id?: string } | null)?.market_id === marketId
+    );
+    expect(aliceNotifs).toHaveLength(1);
+    expect(aliceNotifs[0]!.type).toBe("payout_received");
+    // 0026 widened this payload to match the binary path, which already carried
+    // market_title; the O/U version had only market_id and payout.
+    expect(aliceNotifs[0]!.data).toMatchObject({ payout: 200 });
+    expect(aliceNotifs[0]!.data).toHaveProperty("market_title");
+
+    const bobNotifs = (await getNotifications(userId("bob"))).filter(
+      (n) => (n.data as { market_id?: string } | null)?.market_id === marketId
+    );
+    expect(bobNotifs).toHaveLength(1);
+    expect(bobNotifs[0]!.type).toBe("market_resolved");
+    expect(bobNotifs[0]!.title).toBe("Market resolved");
+    // Single losing position → the side is named.
+    expect(bobNotifs[0]!.body).toContain("Your UNDER bet (100 coins)");
+    expect(bobNotifs[0]!.data).toMatchObject({ coins_wagered: 100, positions: 1 });
+  });
+
+  test("a push is announced rather than silently refunded", async () => {
+    // The sneakiest of the three gaps 0026 closed: a push moved coins back into
+    // the balance and said nothing at all, so the only evidence a user had that
+    // their bet was a tie was the number changing.
+    const marketId = await createMarket({
+      marketType: "over_under",
+      ouLine: 4,
+      ouUnit: "pts",
+    });
+    await placeOuBetAs("alice", marketId, "yes", 100); // OVER @ line 4
+    await resolveOuMarketAs(marketId, 4); // exactly the line → push
+
+    const notifs = (await getNotifications(userId("alice"))).filter(
+      (n) => (n.data as { market_id?: string } | null)?.market_id === marketId
+    );
+    expect(notifs).toHaveLength(1);
+    expect(notifs[0]!.type).toBe("market_resolved");
+    expect(notifs[0]!.title).toBe("Market pushed");
+    expect(notifs[0]!.body).toContain("a push");
+    expect(notifs[0]!.body).toContain("100 coins were refunded");
+    expect(notifs[0]!.data).toMatchObject({ refunded: 100, positions: 1, push: true });
+
+    // The push is a push: net zero, and no payout notification claiming a win.
+    expect(await getCoins(userId("alice"))).toBe(1_000);
+    expect(notifs.filter((n) => n.type === "payout_received")).toHaveLength(0);
+  });
+
   test("an exact tie is a push: stake returned, but it does not count as a win", async () => {
     const marketId = await createMarket({
       marketType: "over_under",
@@ -139,8 +213,7 @@ test.describe("betting: over/under markets", () => {
       ouUnit: "pts",
     });
     await setCoins("alice", 1_000);
-    const before = (await import("./helpers/db")).getProfile;
-    const winsBefore = (await before(userId("alice"))).wins;
+    await setProfileFields("alice", { wins: 0, win_streak: 0, loss_streak: 0 });
 
     await placeOuBetAs("alice", marketId, "yes", 100); // OVER @ line 4
     await resolveOuMarketAs(marketId, 4); // exactly the line
@@ -151,8 +224,23 @@ test.describe("betting: over/under markets", () => {
     expect(position.payout).toBe(100);
     // …so the balance is exactly restored, net zero.
     expect(await getCoins(userId("alice"))).toBe(1_000);
-    // …but `wins` is deliberately NOT incremented for a push.
-    expect((await before(userId("alice"))).wins).toBe(winsBefore);
+
+    const after = await getProfile(userId("alice"));
+    // `resolve_ou_market` deliberately does NOT increment `wins` for a push.
+    expect(after.wins).toBe(0);
+
+    // …but it DOES extend the win streak, and that is a bug (spec §12.4).
+    // `update_user_streaks` (0020) keys off a position's status becoming 'won',
+    // and a push is stored as 'won' with payout == stake because there is no
+    // 'push' value in the position_status enum. So a tie — where the user won
+    // nothing — inflates their 🔥 Hot Streak and can put them on the Stat
+    // Leaders board.
+    //
+    // Pinned rather than asserted-as-correct: fixing it needs a migration and a
+    // design call (add a 'push' status, or have the trigger compare payout to
+    // stake). When that lands, this assertion fails and must be flipped to 0.
+    expect(after.win_streak).toBe(1);
+    expect(after.loss_streak).toBe(0);
   });
 
   test("O/U markets have no probability chart and no pools", async ({ page }) => {
@@ -196,7 +284,7 @@ test.describe("betting: over/under markets", () => {
   test("an O/U market with no line set refuses bets", async ({ page }) => {
     // Built by hand so ou_line is null — createMarket always sets one.
     const { admin } = await import("./helpers/db");
-    const { data } = await admin
+    const { data, error: insertError } = await admin
       .from("markets")
       .insert({
         title: "[E2E] OU no line",
@@ -211,14 +299,55 @@ test.describe("betting: over/under markets", () => {
       })
       .select("id")
       .single();
+    // Explicit, so a failed insert reports itself rather than surfacing as
+    // "Cannot read properties of null" three lines later.
+    if (insertError || !data) {
+      throw new Error(`seeding a line-less O/U market failed: ${insertError?.message}`);
+    }
 
     await loginAs(page, "alice");
-    const res = await page.request.post(`/api/markets/${data!.id}/bet`, {
+    const res = await page.request.post(`/api/markets/${data.id}/bet`, {
       data: { side: "yes", coins: 50 },
     });
     expect(res.status()).toBe(400);
     expect((await res.json()).error).toBe("This market does not have a line set yet.");
-    expect(await getPositions(data!.id as string)).toHaveLength(0);
+    expect(await getPositions(data.id as string)).toHaveLength(0);
+  });
+
+  test("O/U bets obey the same calibration ramp as binary bets", async ({ page }) => {
+    // place_ou_bet carries its own copy of the 200/300/400 ramp (0013). It had
+    // no coverage at all, so a regression there would have been invisible —
+    // 0010's older flat 100-coin cap could have been reinstated unnoticed.
+    const marketId = await createMarket({
+      marketType: "over_under",
+      ouLine: 3.5,
+      ouUnit: "pts",
+    });
+    await setCoins("alice", 5_000);
+    await loginAs(page, "alice");
+
+    for (const [index, cap] of [200, 300, 400].entries()) {
+      const tooBig = await page.request.post(`/api/markets/${marketId}/bet`, {
+        data: { side: "yes", coins: cap + 1 },
+      });
+      expect(tooBig.status()).toBe(400);
+      expect((await tooBig.json()).error).toBe(
+        `Calibration period: max ${cap} coins on this bet.`
+      );
+      expect(await getPositions(marketId)).toHaveLength(index);
+
+      const atCap = await page.request.post(`/api/markets/${marketId}/bet`, {
+        data: { side: "yes", coins: cap },
+      });
+      expect(atCap.ok()).toBe(true);
+      expect(await getPositions(marketId)).toHaveLength(index + 1);
+    }
+
+    // Past the ramp, a stake far above the last cap is accepted.
+    const big = await page.request.post(`/api/markets/${marketId}/bet`, {
+      data: { side: "yes", coins: 1_000 },
+    });
+    expect(big.ok()).toBe(true);
   });
 
   // ─── Admin line-setting (binary) ──────────────────────────────────────────

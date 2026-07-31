@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { loginAs } from "./helpers/auth";
-import { admin, getProfile } from "./helpers/db";
+import { admin, getPosition, getProfile } from "./helpers/db";
 import { USERS } from "./helpers/fixtures";
 import {
   createMarket,
@@ -188,28 +188,61 @@ test.describe("leaderboard and stat leaders", () => {
     await expect(page.getByText("Stat Leaders")).toBeVisible();
     await expect(page.getByTestId("stat-leader-hot")).toContainText("5 wins in a row");
     await expect(page.getByTestId("stat-leader-cold")).toContainText("4 losses in a row");
-    await expect(page.getByTestId("stat-leader-week")).toContainText("this week");
+
+    // Assert the tile names whoever the RPC actually ranks first, rather than
+    // assuming it is this test's better. By the time the whole suite has run,
+    // several users have weekly earnings and the genuine top earner may be any
+    // of them — but the UI must agree with the RPC, which is the real contract.
+    const { data: earner } = await admin.rpc("get_weekly_top_earner");
+    const top = Array.isArray(earner) ? earner[0] : earner;
+    expect(top).toBeTruthy();
+
+    const week = page.getByTestId("stat-leader-week");
+    await expect(week).toContainText("this week");
+    await expect(week).toContainText(top.display_name ?? top.username);
 
     // Reset so later specs are not surprised by the streaks.
     await setProfileFields("bob", { win_streak: 0, loss_streak: 0 });
     await setProfileFields("broke", { win_streak: 0, loss_streak: 0 });
   });
 
-  test("the weekly top earner RPC picks the biggest recent winner", async () => {
-    // Clear prior history so the window contains only this test's payout.
-    await admin.from("positions").delete().neq("id", "00000000-0000-0000-0000-000000000000");
-
-    await setCoins("bob", 2_000);
+  test("the weekly top earner RPC reports net earnings for the biggest winner", async () => {
+    // Deliberately does NOT clear the positions table. An earlier version ran
+    // `delete().neq("id", <zero-uuid>)`, which wipes EVERY position row in the
+    // database — including rows other specs were relying on. Instead this gives
+    // one user an unmistakably large win and asserts the RPC ranks them first,
+    // which is the actual behaviour under test and is robust to other history.
+    await setCoins("bob", 60_000);
     const marketId = await createMarket({ yesPool: 100, noPool: 100 });
-    await placeBetAs("bob", marketId, "yes", 100);
+
+    // Four warm-up bets clear the calibration ramp, which caps the first three
+    // bets on any market at 200/300/400 coins — without them bob's 50,000 is
+    // rejected outright. They are placed in matched YES/NO pairs so the pools
+    // stay symmetrical (120/120) and the probability is still exactly 0.5 when
+    // bob bets: his odds must lock at -100 for the payout assertion below.
+    for (const better of ["alice", "owner", "admin"] as const) {
+      await setCoins(better, 1_000);
+    }
+    await placeBetAs("alice", marketId, "yes", 10);
+    await placeBetAs("owner", marketId, "no", 10);
+    await placeBetAs("admin", marketId, "yes", 10);
+    await placeBetAs("alice", marketId, "no", 10);
+
+    // 50,000 at even money (locked -100) → 100,000 payout → 50,000 net. Chosen
+    // to dwarf anything else the suite accumulates, so bob is unambiguously the
+    // top earner regardless of what ran before.
+    await placeBetAs("bob", marketId, "yes", 50_000);
     await resolveMarketAs(marketId, "yes");
+
+    expect((await getPosition(marketId, userId("bob"))).payout).toBe(100_000);
 
     const { data, error } = await admin.rpc("get_weekly_top_earner");
     expect(error).toBeNull();
     const top = Array.isArray(data) ? data[0] : data;
     expect(top.user_id).toBe(userId("bob"));
-    // NET earnings, not gross payout: the RPC subtracts the stake, so a 200
-    // payout on a 100 stake reports 100.
-    expect(Number(top.weekly_earned)).toBe(100);
+    // NET earnings, not gross payout: the RPC subtracts the stake, so a 100,000
+    // payout on a 50,000 stake contributes 50,000 (a floor, since bob may have
+    // won earlier in the same 7-day window).
+    expect(Number(top.weekly_earned)).toBeGreaterThanOrEqual(50_000);
   });
 });

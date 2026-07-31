@@ -3,6 +3,26 @@ import { E2E_TEST_SECRET, TEST_PASSWORD } from "./env";
 import { USERS, type UserKey } from "./fixtures";
 
 /**
+ * One implementation, three entry points. Keeping the request shape in a single
+ * place means the secret header name and the response contract cannot drift
+ * between the page-based and context-based callers.
+ */
+async function postTestLogin(
+  requester: Pick<APIRequestContext, "post">,
+  email: string,
+  label: string
+): Promise<string> {
+  const response = await requester.post("/api/test/login", {
+    headers: { "x-e2e-secret": E2E_TEST_SECRET },
+    data: { email, password: TEST_PASSWORD },
+  });
+  if (!response.ok()) {
+    throw new Error(`${label} failed: ${response.status()} ${await response.text()}`);
+  }
+  return ((await response.json()) as { userId: string }).userId;
+}
+
+/**
  * Sign a page in as a seeded fixture via POST /api/test/login.
  *
  * The route uses the app's own server Supabase factory, so the `sb-*` SSR
@@ -12,19 +32,7 @@ import { USERS, type UserKey } from "./fixtures";
  * browser context that `page` belongs to.
  */
 export async function loginAs(page: Page, key: UserKey): Promise<string> {
-  const user = USERS[key];
-  const response = await page.request.post("/api/test/login", {
-    headers: { "x-e2e-secret": E2E_TEST_SECRET },
-    data: { email: user.email, password: TEST_PASSWORD },
-  });
-
-  if (!response.ok()) {
-    throw new Error(
-      `loginAs(${key}) failed: ${response.status()} ${await response.text()}`
-    );
-  }
-  const body = (await response.json()) as { userId: string };
-  return body.userId;
+  return postTestLogin(page.request, USERS[key].email, `loginAs(${key})`);
 }
 
 /** Same, for a standalone APIRequestContext (no page/browser involved). */
@@ -32,32 +40,12 @@ export async function loginApi(
   request: APIRequestContext,
   key: UserKey
 ): Promise<string> {
-  const user = USERS[key];
-  const response = await request.post("/api/test/login", {
-    headers: { "x-e2e-secret": E2E_TEST_SECRET },
-    data: { email: user.email, password: TEST_PASSWORD },
-  });
-  if (!response.ok()) {
-    throw new Error(
-      `loginApi(${key}) failed: ${response.status()} ${await response.text()}`
-    );
-  }
-  const body = (await response.json()) as { userId: string };
-  return body.userId;
+  return postTestLogin(request, USERS[key].email, `loginApi(${key})`);
 }
 
 /** Log in an arbitrary seeded address (e.g. one from `createExtraUser`). */
 export async function loginAsEmail(page: Page, email: string): Promise<string> {
-  const response = await page.request.post("/api/test/login", {
-    headers: { "x-e2e-secret": E2E_TEST_SECRET },
-    data: { email, password: TEST_PASSWORD },
-  });
-  if (!response.ok()) {
-    throw new Error(
-      `loginAsEmail(${email}) failed: ${response.status()} ${await response.text()}`
-    );
-  }
-  return ((await response.json()) as { userId: string }).userId;
+  return postTestLogin(page.request, email, `loginAsEmail(${email})`);
 }
 
 /** Drop the session cookies for the page's context. */
