@@ -60,6 +60,53 @@ export function isNewMarket(createdAt: string): boolean {
   return diff < 6 * 60 * 60 * 1000;
 }
 
+// Check if a market resolves within the next 24 hours
+export function isClosingSoon(resolutionDate: string | null): boolean {
+  if (!resolutionDate) return false;
+  const diff = new Date(resolutionDate).getTime() - Date.now();
+  return diff > 0 && diff < 24 * 60 * 60 * 1000;
+}
+
+/**
+ * ISO bounds for the home feed's time-windowed sections.
+ *
+ * Returned together from a single `Date.now()` so every section of one render
+ * filters against the same instant — computing them separately lets a market
+ * fall between two windows if the clock ticks mid-render.
+ */
+export function feedTimeWindows(): {
+  nowIso: string;
+  threeDaysAgo: string;
+  in48h: string;
+} {
+  const now = Date.now();
+  return {
+    nowIso: new Date(now).toISOString(),
+    threeDaysAgo: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    in48h: new Date(now + 48 * 60 * 60 * 1000).toISOString(),
+  };
+}
+
+/**
+ * Time left before an incident report auto-resolves, or null once the veto
+ * deadline has passed.
+ *
+ * Callers format their own copy — the admin queue says "Auto-resolves in …"
+ * while the /more hub shows a bare countdown — so this returns the parts rather
+ * than a string.
+ */
+export function vetoTimeRemaining(
+  deadline: string | null
+): { hours: number; minutes: number } | null {
+  if (!deadline) return null;
+  const ms = new Date(deadline).getTime() - Date.now();
+  if (ms <= 0) return null;
+  return {
+    hours: Math.floor(ms / (1000 * 60 * 60)),
+    minutes: Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60)),
+  };
+}
+
 // Get display label for a market category
 export function getCategoryLabel(category: MarketCategory): string {
   const labels: Record<MarketCategory, string> = {

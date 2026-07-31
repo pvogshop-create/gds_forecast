@@ -8,6 +8,7 @@ import {
   formatCoins,
   formatTimeRemaining,
   isNewMarket,
+  isClosingSoon,
   cn,
 } from "@/lib/utils";
 import {
@@ -36,11 +37,7 @@ export function MarketCard({
   const yesProb = market.yes_probability;
   const noProb = 1 - yesProb;
   const isNew = isNewMarket(market.created_at);
-  const isClosingSoon = (() => {
-    if (!market.resolution_date) return false;
-    const diff = new Date(market.resolution_date).getTime() - Date.now();
-    return diff > 0 && diff < 24 * 60 * 60 * 1000;
-  })();
+  const closingSoon = isClosingSoon(market.resolution_date);
   const isResolved =
     market.status === "resolved_yes" || market.status === "resolved_no";
 
@@ -66,7 +63,7 @@ export function MarketCard({
         <div className="flex items-center gap-2">
           <CategoryBadge category={market.category} />
           {isNew && <NewBadge />}
-          {isClosingSoon && <ClosingSoonBadge />}
+          {closingSoon && <ClosingSoonBadge />}
           {userPosition && (
             <span
               className="text-xs font-medium px-2 py-0.5 rounded-full"

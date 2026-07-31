@@ -1,5 +1,6 @@
 import { assertLocalSupabase } from "./helpers/env";
 import { admin } from "./helpers/db";
+import { acquireSuiteLock } from "./helpers/lock";
 import { cleanupAll, seedUsers } from "./helpers/seed";
 
 /**
@@ -13,6 +14,10 @@ import { cleanupAll, seedUsers } from "./helpers/seed";
  */
 export default async function globalSetup(): Promise<void> {
   assertLocalSupabase();
+
+  // Before anything destructive. cleanupAll() below deletes every fixture user,
+  // so a second concurrent run would wreck the first one silently.
+  acquireSuiteLock();
 
   // Fail loudly and early if the DB is unreachable or unmigrated, rather than
   // letting every spec fail with its own confusing error.

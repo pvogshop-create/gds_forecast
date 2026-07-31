@@ -53,3 +53,6 @@ supabase/.branches/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# e2e suite mutex — see e2e/helpers/lock.ts
+.e2e-lock

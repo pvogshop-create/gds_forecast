@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { vetoIncident, resolveFromIncident } from "./actions";
+import { vetoTimeRemaining } from "@/lib/utils";
 import type { IncidentReportWithMarket } from "@/types/database";
 
 interface AdminIncidentsProps {
@@ -73,11 +74,9 @@ function IncidentRow({
 
   let vetoDeadlineText = "";
   if (report.veto_deadline) {
-    const ms = new Date(report.veto_deadline).getTime() - Date.now();
-    if (ms > 0) {
-      const h = Math.floor(ms / (1000 * 60 * 60));
-      const m = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-      vetoDeadlineText = `Auto-resolves in ${h}h ${m}m`;
+    const left = vetoTimeRemaining(report.veto_deadline);
+    if (left) {
+      vetoDeadlineText = `Auto-resolves in ${left.hours}h ${left.minutes}m`;
     } else {
       vetoDeadlineText = "Past veto deadline — awaiting cron";
     }

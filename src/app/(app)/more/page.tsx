@@ -10,7 +10,12 @@ import { JoinLeagueButton } from "@/app/(app)/leagues/JoinLeagueButton";
 import { CategoryBadge, StatusBadge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { markAllNotificationsRead } from "@/app/(app)/notifications/actions";
-import { formatRelativeTime, formatCoins, formatDisplayName } from "@/lib/utils";
+import {
+  formatRelativeTime,
+  formatCoins,
+  formatDisplayName,
+  vetoTimeRemaining,
+} from "@/lib/utils";
 import { probToAmericanOdds, formatAmericanOdds } from "@/lib/market-logic";
 import { EarnCoinsCard } from "./EarnCoinsCard";
 import { IncidentVoteButtons } from "./IncidentVoteButtons";
@@ -126,7 +131,7 @@ export default async function MorePage({
 
   // ── Leagues tab ────────────────────────────────────────────────────────────
   let leagues: League[] = [];
-  let memberCounts: Record<string, number> = {};
+  const memberCounts: Record<string, number> = {};
 
   if (tab === "leagues") {
     const { data: memberships } = await supabase
@@ -749,15 +754,12 @@ export default async function MorePage({
                 // Time until auto-resolve (when passed)
                 let vetoCountdown: string | null = null;
                 if (isPassed && report.veto_deadline) {
-                  const ms =
-                    new Date(report.veto_deadline).getTime() - Date.now();
-                  if (ms > 0) {
-                    const h = Math.floor(ms / (1000 * 60 * 60));
-                    const m = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-                    vetoCountdown = h > 0 ? `${h}h ${m}m` : `${m}m`;
-                  } else {
-                    vetoCountdown = "resolving soon";
-                  }
+                  const left = vetoTimeRemaining(report.veto_deadline);
+                  vetoCountdown = left
+                    ? left.hours > 0
+                      ? `${left.hours}h ${left.minutes}m`
+                      : `${left.minutes}m`
+                    : "resolving soon";
                 }
 
                 return (

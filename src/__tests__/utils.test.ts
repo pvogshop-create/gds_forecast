@@ -1,10 +1,11 @@
 /**
  * Tests for src/lib/utils.ts
  * Covers: formatCoins, formatProbability, formatCents, formatTimeRemaining,
- *         formatRelativeTime, isNewMarket, getInitials, formatWinRate
+ *         formatRelativeTime, isNewMarket, getInitials, formatWinRate,
+ *         isClosingSoon, feedTimeWindows, vetoTimeRemaining
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   formatCoins,
   formatProbability,
@@ -14,6 +15,9 @@ import {
   isNewMarket,
   getInitials,
   formatWinRate,
+  isClosingSoon,
+  feedTimeWindows,
+  vetoTimeRemaining,
 } from "@/lib/utils";
 
 // ─── 1. formatCoins ───────────────────────────────────────────────────────────
@@ -213,5 +217,125 @@ describe("formatWinRate", () => {
 
   it("handles a typical win rate", () => {
     expect(formatWinRate(7, 10)).toBe("70%");
+  });
+});
+
+// ─── 9. isClosingSoon ────────────────────────────────────────────────────────
+// These three read the clock, so they pin it. Without fake timers a boundary
+// case like "exactly 24h out" is decided by however long the suite took to get
+// here, which is the kind of test that fails once a month and gets re-run.
+describe("isClosingSoon", () => {
+  const NOW = new Date("2026-07-31T12:00:00.000Z");
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+
+  // Without this the pinned clock leaks into every test declared after these
+  // blocks, which would fail in ways that point nowhere near the cause.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const hoursFromNow = (h: number) =>
+    new Date(NOW.getTime() + h * 60 * 60 * 1000).toISOString();
+
+  it("returns false when the market has no resolution date", () => {
+    expect(isClosingSoon(null)).toBe(false);
+  });
+
+  it("returns true for a market resolving in 1 hour", () => {
+    expect(isClosingSoon(hoursFromNow(1))).toBe(true);
+  });
+
+  it("returns true just inside the 24h window", () => {
+    expect(isClosingSoon(hoursFromNow(23.9))).toBe(true);
+  });
+
+  it("returns false exactly 24 hours out (window is exclusive)", () => {
+    expect(isClosingSoon(hoursFromNow(24))).toBe(false);
+  });
+
+  it("returns false for a market resolving in 3 days", () => {
+    expect(isClosingSoon(hoursFromNow(72))).toBe(false);
+  });
+
+  it("returns false once the resolution date has passed", () => {
+    expect(isClosingSoon(hoursFromNow(-1))).toBe(false);
+  });
+});
+
+// ─── 10. feedTimeWindows ─────────────────────────────────────────────────────
+describe("feedTimeWindows", () => {
+  const NOW = new Date("2026-07-31T12:00:00.000Z");
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+
+  // Without this the pinned clock leaks into every test declared after these
+  // blocks, which would fail in ways that point nowhere near the cause.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns the three bounds relative to one instant", () => {
+    const { nowIso, threeDaysAgo, in48h } = feedTimeWindows();
+    expect(nowIso).toBe("2026-07-31T12:00:00.000Z");
+    expect(threeDaysAgo).toBe("2026-07-28T12:00:00.000Z");
+    expect(in48h).toBe("2026-08-02T12:00:00.000Z");
+  });
+
+  it("orders the bounds so the feed's filters cannot overlap", () => {
+    const { nowIso, threeDaysAgo, in48h } = feedTimeWindows();
+    expect(threeDaysAgo < nowIso).toBe(true);
+    expect(nowIso < in48h).toBe(true);
+  });
+});
+
+// ─── 11. vetoTimeRemaining ───────────────────────────────────────────────────
+describe("vetoTimeRemaining", () => {
+  const NOW = new Date("2026-07-31T12:00:00.000Z");
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+
+  // Without this the pinned clock leaks into every test declared after these
+  // blocks, which would fail in ways that point nowhere near the cause.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const minutesFromNow = (m: number) =>
+    new Date(NOW.getTime() + m * 60 * 1000).toISOString();
+
+  it("returns null when there is no deadline", () => {
+    expect(vetoTimeRemaining(null)).toBeNull();
+  });
+
+  it("splits the remaining time into hours and minutes", () => {
+    expect(vetoTimeRemaining(minutesFromNow(150))).toEqual({
+      hours: 2,
+      minutes: 30,
+    });
+  });
+
+  it("reports zero hours when under an hour remains", () => {
+    expect(vetoTimeRemaining(minutesFromNow(45))).toEqual({
+      hours: 0,
+      minutes: 45,
+    });
+  });
+
+  it("returns null exactly at the deadline", () => {
+    expect(vetoTimeRemaining(minutesFromNow(0))).toBeNull();
+  });
+
+  it("returns null once the deadline has passed", () => {
+    expect(vetoTimeRemaining(minutesFromNow(-30))).toBeNull();
   });
 });

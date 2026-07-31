@@ -4,7 +4,7 @@ import { requireAuth } from "@/lib/auth";
 import { MarketList } from "@/components/markets/MarketList";
 import { MarketTabSwitcher } from "@/components/markets/MarketTabSwitcher";
 import { Avatar } from "@/components/ui/Avatar";
-import { formatCoins, formatDisplayName } from "@/lib/utils";
+import { feedTimeWindows, formatCoins, formatDisplayName } from "@/lib/utils";
 import type { Market, Position, Profile } from "@/types/database";
 
 type StreakUser = Pick<Profile, "id" | "username" | "display_name" | "avatar_url"> & {
@@ -114,10 +114,7 @@ export default async function TrendingPage({
   let mostCommentedMarkets: Market[] = [];
 
   if (!isCompleted) {
-    const now = Date.now();
-    const threeDaysAgo = new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString();
-    const in48h = new Date(now + 48 * 60 * 60 * 1000).toISOString();
-    const nowIso = new Date(now).toISOString();
+    const { nowIso, threeDaysAgo, in48h } = feedTimeWindows();
 
     newMarkets = [...allMarkets]
       .filter((m) => m.created_at >= threeDaysAgo)

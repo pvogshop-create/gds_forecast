@@ -1,21 +1,14 @@
 import { Sidebar } from "./Sidebar";
 import { BottomTabBar } from "./BottomTabBar";
 import type { Profile } from "@/types/database";
-import type { User } from "@supabase/supabase-js";
 
 interface AppShellProps {
-  user: User;
   profile: Profile;
   isAdmin: boolean;
   children: React.ReactNode;
 }
 
-export function AppShell({
-  user: _user,
-  profile,
-  isAdmin,
-  children,
-}: AppShellProps) {
+export function AppShell({ profile, isAdmin, children }: AppShellProps) {
   return (
     <div
       className="flex min-h-screen"
