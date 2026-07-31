@@ -36,7 +36,9 @@ CLI ledger from the real schema, which is what required the 2026-07-29 repair ab
 | 0023_fix_league_notification_and_realtime | 2026-07-29 | local, then **prod** (`curtlcoxtnoxljzkrlms`) | **Local:** `supabase migration up --local`; `pg_enum` shows `notification_type` ending in `league_win` (9 values), `pg_publication_tables` shows `league_messages` in `supabase_realtime`, re-run applied 0 migrations (idempotent). **Prod:** `db push` after a clean `--dry-run` listing 0023 as the only queued migration; `migration list --linked` now shows 23 matched pairs. Enum verified on prod by PostgREST probe — `?type=eq.league_win` returns `[]` while a bogus value returns `22P02 invalid input value for enum`, which is exactly the error `league_win` itself would have produced before this migration. Publication change verified on local only (PostgREST cannot read `pg_catalog`); confirm on prod via the SQL editor or by watching league chat update without a reload. |
 | 0024_fix_league_rls_recursion | 2026-07-30 | local, then **prod** (`curtlcoxtnoxljzkrlms`) | **Local:** `migration up --local`, then verified through **authenticated** clients (never `service_role`, which bypasses RLS and would prove nothing): before, every league read returned `42P17 infinite recursion detected in policy for relation "league_members"`; after, a league's owner and members each read it while a non-member gets `[]` — filtered, not errored — including a direct-by-id read of `league_messages`. `/leagues/[id]` renders for its owner again (it previously 404'd). Covered by `e2e/leagues.spec.ts` + `e2e/league-tournament.spec.ts` (27 tests), full suite 218 green. **Prod:** `db push` after a dry-run listing 0024 as the only queued migration; `migration list --linked` shows 24 matched pairs. Post-apply probe with the anon key: `GET /rest/v1/leagues` and `/rest/v1/league_members` both return rows (they raised `42P17` before), and `POST /rest/v1/rpc/find_league_by_invite_code` returns `[]` for a bogus code, proving both new functions landed. |
 | 0025_detrending | 2026-07-30 | local, then **prod** (`curtlcoxtnoxljzkrlms`) | **Local:** `migration up --local`. Post-apply the enum is exactly `{sports,social,actions}`; `market_category_new` no longer exists (the rename took); both `markets.category` and `market_suggestions.category` are still typed `market_category`; `SELECT 'trending'::market_category` raises `22P02`. `pg_policies` count identical before and after (39 → 39) — checked per the 0024 lesson that a no-op `DROP POLICY IF EXISTS` is silent. Re-running the file is a clean no-op (the swap is guarded on `trending` still being an enum member). **Not run:** fresh-DB replay via `db reset`, which was declined to preserve local data. **Prod:** `db push` after a dry-run listing 0025 as the only queued migration. Row counts identical before and after — markets 11, suggestions 11, positions 20, comments 4, so nothing cascaded. Category split moved exactly as intended: markets `{actions 6, social 2, sports 2, trending 1}` → `{actions 6, social 3, sports 2}`; suggestions `{social 5, actions 4, sports 1, trending 1}` → `{social 6, actions 4, sports 1}`. Both reassigned rows verified by id and now read `social`. Negative check: `?category=eq.trending` returns `22P02 invalid input value for enum`. |
-| _next: 0026 (resolution notifications) and 0027 (locked line + referral) — both written, neither applied_ | | | |
+| 0026_resolution_notifications | 2026-07-30 | **local only** — not yet pushed to prod | `migration up --local`. Losing bettors were told nothing at all when a market they bet on resolved: `resolve_market` (0007) emitted `payout_received` from a loop over winners and handled losers with a set-based `UPDATE` that notified nobody, while `resolve_ou_market` (0010) inserted only in its WIN branch — its LOSS branch silent and its PUSH branch refunding coins with no explanation. `market_resolved` had been in the `notification_type` enum since 0002 and was inserted by nothing, anywhere, so no `ALTER TYPE` was needed (which also sidesteps the 0023 same-transaction enum trap). Verified: a binary loser gets exactly one `market_resolved` naming outcome, side and stake; three losing positions collapse to **one** notification carrying the summed stake; a market with no losers writes **zero** rows (the `GROUP BY` runs over a data-modifying CTE, so the empty case needed checking); O/U loser and O/U push each notified, the push body saying refunded rather than won or lost. Payouts, streaks and balances byte-identical — the migration adds only INSERTs. Two pre-existing tests pinned the gap deliberately and were flipped as part of this change (`resolution-payout.spec.ts`; and the comment in `betting-loop.spec.ts`, whose assertion now holds for the opposite reason — its only bettor is a winner). Full suite 253 green. |
+| 0027_locked_line_and_referral | 2026-07-30 | **local only** — not yet pushed to prod | `migration up --local`. Investigating a suspected lost-update race in `place_bet` found the function **already correct** — `SELECT … FOR UPDATE` on the market before reading pools and on the profile before the balance check (0013), balance deducted in place. Confirmed by mutation testing rather than by reading: stripping both locks locally turns 4 of the 6 tests in the new `e2e/concurrency.spec.ts` red, with the market-lock test showing a 500-coin pool collapse to **200**, the profile-lock test **1100 → 400**, the overdraft test letting **3 of 5** bets through on a 100-coin balance (driving it negative — `profiles.coins` has no `CHECK (coins >= 0)`), and the O/U line landing on 4.5 instead of 5.5. The invariant *everyone who writes pools holds the market lock* was broken one layer out by `setMarketLine()`, which read pools over PostgREST, computed in TypeScript, and wrote back across two transactions — so a bet landing in between had its pool contribution erased while staying debited. Adds `set_market_line()` (locked, service-role gated, refuses settled and O/U markets) and `american_odds_to_prob()`, the SQL inverse of the TS `americanOddsToProb`, shipped with a value-table agreement test because a drift would silently reprice markets rather than error. Locks `record_referral()`'s idempotency check (concurrent calls both passed the bare `EXISTS` and **minted 500 coins twice**) and adds its missing `search_path` pin. Gives `profiles.referred_by` `ON DELETE SET NULL`: it had no ON DELETE action, so **any user who had ever referred somebody could not be deleted** — a live account-deletion bug, and the reason E2E teardown left fixtures behind and produced intermittent `markets_creator_id_fkey` failures. Full suite 253 green. |
+| _next: 0028 (circles + circle_members tables)_ | | | |
 
 ### Prod data operations (not migrations, but they changed production)
 
@@ -89,6 +91,59 @@ transaction. Separately, `league_messages` was never added to the realtime publi
 chat never updated live. Both were found while building the E2E suite (see `TESTING.md`), which
 could not test the tournament flow without them. This consumed `0023`; `0024` was then consumed by the
 league RLS fix above, so the planned sequence shifted +1 twice — de-trending is now **0025**.
+
+### Why 0027 exists (it was not in the original plan either)
+
+It started as a suspicion that `place_bet` did not lock the market row before computing new pools —
+which would let two simultaneous bets both read the same starting pools, one overwriting the other,
+corrupting pools and vanishing coins. **The suspicion was wrong where it was aimed.** `place_bet`'s
+live definition is 0013 (not the 0004 original), and it takes `SELECT … FOR UPDATE` on the market
+before reading pools and on the profile before checking the balance. Its pool write *is* a snapshot
+read-modify-write (`SET yes_pool = v_new_yes_pool`, not `= yes_pool + p_coins`), which is textbook
+lost-update shape — but the lock above it makes that safe. `place_ou_bet` is identical.
+
+That pairing had never been tested, so it was one refactor away from silently breaking. The new
+`e2e/concurrency.spec.ts` pins it, and was itself validated by **mutation testing** — stripping both
+`FOR UPDATE`s in a local database and confirming the tests actually go red:
+
+| Test | Correct | Locks removed |
+|---|---|---|
+| four users bet at once | pool 500 | **200** (300 coins debited, gone from the pool) |
+| one user, ten simultaneous bets | pool 1100 | **400** (700 coins gone) |
+| overdraft: 5 × 100 on a 100 balance | 1 bet accepted | **3 accepted**, balance driven negative |
+| O/U line after four shifts | 5.5 | **4.5** (two shifts lost) |
+
+A green test that cannot be shown to go red proves nothing; this is what "red then green" means for a
+lock. Note the calibration-flood test stays green without the locks and says so in a comment — it is
+a real regression test for the ramp and is *not* evidence about locking.
+
+The genuine defects were one layer out, where the invariant *everyone who writes pools holds the
+market lock* was simply not held:
+
+1. **`setMarketLine()`** read `yes_pool`/`no_pool` over PostgREST, computed in TypeScript, and wrote
+   back — two round trips, two transactions, no lock. A bet committing in between had its pool
+   contribution erased while the coins stayed debited and the position kept its locked odds. Now a
+   locked `set_market_line()` RPC, which also brings it in line with the CLAUDE.md rule that state
+   changes go through SECURITY DEFINER RPCs rather than direct client table writes.
+2. **`record_referral()`** guarded idempotency with a bare `EXISTS` and no lock, so two concurrent
+   calls for the same new user both passed and awarded 500 coins twice. Coins were not *lost* —
+   they were **minted**, which in a play-money economy is the same problem pointed the other way.
+3. **`profiles.referred_by`** had no `ON DELETE` action, so any user who had ever referred somebody
+   **could not be deleted at all**. That is a live account-deletion bug, and it is also why E2E
+   teardown had been leaving fixtures behind and producing intermittent `markets_creator_id_fkey`
+   and "Fixture … is missing" failures.
+
+**Left open deliberately:** `start_league_week()` (0018) evaluates `p.coins >= buy_in` in its cursor
+query and debits in a separate statement with no profile lock, so a concurrent bet can drive a balance
+negative — and there is no `CHECK (coins >= 0)` to catch it. Its member cursor also has no `ORDER BY`,
+so two concurrent calls with overlapping members can deadlock. Tournament-gated, and it needs its own
+decision on lock ordering plus a scan for existing negative balances before a CHECK can be added.
+
+**Also left open:** a push in `resolve_ou_market` is stored as `status = 'won'`, so
+`update_user_streaks` (0020) counts a refund as a win and inflates the 🔥 Hot Streak. Pinned as
+current behaviour in `e2e/betting-ou.spec.ts`; fixing it needs a `push` status or a payout-vs-stake
+comparison in the trigger. Positions with `ou_line_at_bet IS NULL` are also skipped by that function
+and stay `open` forever on a resolved market.
 
 ### Why 0026 exists (it was not in the original plan either)
 

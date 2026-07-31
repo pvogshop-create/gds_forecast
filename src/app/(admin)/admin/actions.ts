@@ -111,27 +111,24 @@ export async function setMarketStatus(
 // ─── Set Market Line ──────────────────────────────────────────────────────────
 // Adjusts yes_pool/no_pool to reflect the given American odds for YES,
 // keeping total pool size constant.
+//
+// The arithmetic lives in the `set_market_line` RPC (0026), not here. It used to
+// run in this function as SELECT pools → compute → UPDATE pools, which is two
+// PostgREST round trips in two separate transactions with no row lock. Every
+// other writer of these columns (`place_bet`, `place_ou_bet`) takes
+// `SELECT ... FOR UPDATE` on the market first, so a bet landing between this
+// function's read and its write had its pool contribution silently overwritten —
+// the bettor stayed debited, their position kept its locked odds, and the coins
+// simply left the pool. Doing it in one locked statement server-side is what
+// closes that window.
 export async function setMarketLine(marketId: string, yesOdds: number) {
   await requireAdmin();
   const admin = createAdminClient();
 
-  const { data: market } = await admin
-    .from("markets")
-    .select("yes_pool, no_pool")
-    .eq("id", marketId)
-    .single();
-
-  if (!market) throw new Error("Market not found");
-
-  const total = market.yes_pool + market.no_pool;
-  const p = americanOddsToProb(yesOdds);
-  const newYesPool = Math.round(total * p);
-  const newNoPool = total - newYesPool;
-
-  const { error } = await admin
-    .from("markets")
-    .update({ yes_pool: newYesPool, no_pool: newNoPool })
-    .eq("id", marketId);
+  const { error } = await admin.rpc("set_market_line", {
+    p_market_id: marketId,
+    p_yes_odds: yesOdds,
+  });
 
   if (error) throw new Error(`Failed to set market line: ${error.message}`);
   revalidatePath("/admin");
