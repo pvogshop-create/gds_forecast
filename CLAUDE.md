@@ -97,6 +97,24 @@ Tier-first, not category-first. Top-level nav = Home / Explore / your circles / 
   Use the slash modifier (`bg-[var(--color-coin)]/15`). Three were broken this way until 2026-07-29.
 - **The repo folder gets dragged around.** If a shell reports "working directory was deleted", the
   directory moved — `find ~ -maxdepth 3 -iname "GDS_Kalshi" -type d` — it is not data loss.
+- **Use `gen_random_uuid()` in new migrations, never `uuid_generate_v4()`.** The latter comes from
+  the `uuid-ossp` extension, which Supabase installs into the **`extensions` schema**. It therefore
+  only resolves when `extensions` is on the `search_path`. Local Supabase sets
+  `search_path = "$user", public, extensions`, so it works locally; **the connection
+  `supabase db push` uses against the hosted project does not**, and the statement fails there with
+  `function uuid_generate_v4() does not exist`. `gen_random_uuid()` is in `pg_catalog` (core Postgres
+  since 13), so it resolves under any `search_path` with no extension dependency.
+  0002/0014/0017/0019 all use `uuid_generate_v4()` and are fine **only because every migration
+  through 0021 was hand-applied via the dashboard SQL editor**, whose session does have `extensions`
+  on the path. 0029 was the first migration to create a table through `db push`, and it failed on
+  its very first statement (2026-08-02). Leave the old files alone; use `gen_random_uuid()` from here.
+- **`supabase db push` does not show you the Postgres error.** On failure it echoes the *statement*
+  and a generic `LegacyDbPushApplyError`, with no `ERROR:`/`DETAIL:`/`HINT:` line — `--debug` adds
+  nothing. To find the real cause, replay the migration locally under the hosted connection's
+  conditions inside a rolled-back transaction:
+  `BEGIN; SET LOCAL search_path = public; <the migration> ROLLBACK;` piped into
+  `docker exec -i supabase_db_<project> psql -U postgres -d postgres -v ON_ERROR_STOP=1`.
+  That reproduces the failure with a real error message and changes nothing.
 
 ## Design tokens
 Palette is **black / white / purple**; `--color-primary` is `#7C3AED`. All colour lives in the
@@ -172,12 +190,12 @@ or suggest it as an improvement. Conventional Commit messages still apply
    idempotency check (concurrent calls minted 500 coins twice), and gives
    `profiles.referred_by` `ON DELETE SET NULL` — it had no ON DELETE action, so **any user who ever
    referred somebody could not be deleted at all**.
-7. **0028** — ✅ **APPLIED (local only)** stop an over/under **push** extending a win
+7. **0028** — ✅ **APPLIED (prod)** stop an over/under **push** extending a win
    streak. A push is stored as `status='won'` (there is no `push` value in `position_status`),
    so the streak trigger counted a tie as a win. `update_user_streaks` now recognises a push by
    comparing `markets.resolution_value` to `positions.ou_line_at_bet` — the resolver's own test —
    and leaves both streaks untouched.
-8. **0029** — ✅ **APPLIED (local only)** `circles` + `circle_members` tables (+ member-count
+8. **0029** — ✅ **APPLIED (prod)** `circles` + `circle_members` tables (+ member-count
    trigger, RLS). Beyond spec §2.1–2.2 it adds `max_members` (default 500), a `^[a-z0-9-]{3,40}$`
    CHECK on `slug` (it is a route segment), the `is_circle_member()` / `is_circle_moderator()`
    SECURITY DEFINER helpers that keep the policies out of the 0024 recursion trap, and three RPCs:

@@ -114,7 +114,22 @@ export async function createCircle(formData: FormData) {
     if (error.code === "23505") {
       throw new Error(`The slug "${slug}" is already taken. Choose another.`);
     }
-    throw new Error(`Failed to create circle: ${error.message}`);
+    // The function does not exist in this database. PostgREST reports a missing
+    // RPC as PGRST202 (not in the schema cache) and Postgres as 42883.
+    //
+    // In practice this means one thing: the environment you are pointed at has
+    // not had 0029 applied. Saying so is the whole point — a generic "failed to
+    // create circle" sends you looking at the form, and a production build
+    // redacts the underlying message entirely, so the admin sees only an opaque
+    // digest error and has nothing to go on.
+    if (error.code === "PGRST202" || error.code === "42883") {
+      throw new Error(
+        "This database does not have the circles migration (0029) applied. " +
+          "Check which Supabase project the app is pointed at — `npx supabase " +
+          "migration list --linked` shows what the remote actually has."
+      );
+    }
+    throw new Error(`Failed to create circle: ${error.message} (${error.code})`);
   }
 
   revalidatePath("/admin");

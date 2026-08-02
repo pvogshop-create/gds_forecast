@@ -40,7 +40,23 @@
 -- ─── Tables ─────────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS public.circles (
-  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  -- `gen_random_uuid()`, NOT `uuid_generate_v4()`. The latter comes from the
+  -- uuid-ossp extension, which Supabase installs into the `extensions` schema,
+  -- and it therefore only resolves when `extensions` is on the search_path.
+  -- Local Supabase sets `search_path = "$user", public, extensions`, so it works
+  -- there; the connection `supabase db push` uses against the hosted project
+  -- does not, and this exact line failed there with "function
+  -- uuid_generate_v4() does not exist".
+  --
+  -- 0002/0014/0017/0019 all use uuid_generate_v4() and are fine, because every
+  -- migration up to 0021 was hand-applied through the dashboard SQL editor,
+  -- whose session does have `extensions` on the path. 0029 is the first
+  -- migration to create a table via `db push`, which is why it surfaced here.
+  --
+  -- `gen_random_uuid()` lives in pg_catalog (core Postgres since 13), so it
+  -- resolves under any search_path and needs no extension at all.
+  -- **Use it for every new table from here on.**
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name           TEXT NOT NULL,
   -- URL-friendly, e.g. 'lincoln-high'. The CHECK exists because the slug is a
   -- route segment (/circles/[slug]); without it an admin typo could mint a

@@ -348,13 +348,42 @@ Add `can_view_market(market_id)` to the `WITH CHECK` of every dependent-table in
 matrix with **negative write** tests: Bob's insert into a Circle X market must be rejected, not
 merely invisible. A read-only test suite would pass this hole silently.
 
-**10e — Perf, ship, staging (60 min).** `EXPLAIN` the market-list and feed queries under a normal
+**10e — Perf, ship (60 min).** `EXPLAIN` the market-list and feed queries under a normal
 user; the helper runs per row, so confirm no pathological plan (spec §4 flags a join-based rewrite
 for larger scale). Ship, log, commit.
 
-**Then create the staging Supabase project** — free tier, loaded from a prod snapshot. From step 11
-on, migrations climb local → staging → prod. Creating it needs dashboard clicks, so that part is
-yours; wiring the restore and pointing the suite at it is scriptable.
+> **Staging is now its own step — 10.5, immediately before this one.** It moved out of 10e because
+> it is a prerequisite *for* step 10, not a footnote after it.
+
+## 10.5 Staging Supabase project — the gate before 0031 (90 min)
+
+**Do this before 10b ships, not after.** Every migration so far has gone local → prod, which was
+defensible while each one was additive or a bug fix and prod held only test data. **0031 is neither.**
+It rewrites the SELECT policy on six tables at once; if it is wrong it does not error, it leaks
+private markets between teenagers. That is the first migration where "prod is the first non-local
+environment it has ever touched" is an unacceptable sentence.
+
+0029 is the argument for this in miniature. It passed 52 local tests, mutation testing and a clean
+idempotent replay — and still **failed on its very first statement against the hosted project**,
+because `uuid_generate_v4()` resolves locally and does not resolve through `db push` (see CLAUDE.md's
+toolchain traps). Local green does not mean hosted green. A staging project is where that class of
+difference surfaces without an audience.
+
+**10.5a — Create the project (yours, dashboard clicks).** Free tier, same region as prod. Name it so
+it can never be confused with prod in a dropdown at 1am — `forecast-staging`, not `forecast-2`.
+
+**10.5b — Load it from a prod snapshot (scriptable).** `supabase db dump` from prod → restore into
+staging. Docker is available, so this works locally. Snapshot the *data*, not just the schema:
+policy bugs hide behind empty tables, and the whole point is to rehearse against realistic rows.
+
+**10.5c — Point the harness at it.** `e2e/helpers/env.ts:37-56` currently refuses any non-loopback
+host — that guard exists so the suite can never be aimed at prod, and it must **stay**. Add an
+explicit staging opt-in (a `E2E_ALLOW_STAGING` + exact-host allowlist), never a blanket relaxation.
+The RLS matrix is the part worth running there; the destructive fixture seeding is not.
+
+**10.5d — Write down the ladder.** From step 11 on: local → staging → prod, and record which
+environment each migration has reached in `MIGRATIONS_LOG.md` as it climbs. Update the spec §10.2
+ladder and the CLAUDE.md environment note to say staging exists and is mandatory.
 
 > **Gate:** this migration ships only when the entire positive **and** negative matrix is green
 > across all six tables — **reads and writes both**. One red negative test blocks it.

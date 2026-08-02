@@ -75,11 +75,23 @@ export default async function AdminPage({
     // Through the admin client, so this listing shows EVERY circle. A normal
     // session would only see the ones it belongs to plus open ones — correct
     // for /circles, useless for administering them.
-    const { data } = await admin
+    const { data, error } = await admin
       .from("circles")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(50);
+
+    // Do NOT fall back to [] here. If the table is missing — an environment
+    // without 0029 — an empty array renders "No circles yet", which is a
+    // different and wrong statement: it says the query worked and found none.
+    // Silent-empty is how a whole feature looks healthy while being broken.
+    if (error) {
+      throw new Error(
+        `Could not read circles: ${error.message} (${error.code}). ` +
+          `If this is "relation does not exist", the database this app is pointed ` +
+          `at has not had migration 0029 applied.`
+      );
+    }
     circles = (data ?? []) as Circle[];
   } else if (tab === "users") {
     const { data } = await admin

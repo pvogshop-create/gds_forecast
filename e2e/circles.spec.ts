@@ -844,6 +844,21 @@ test.describe("circles UI", () => {
     await expect(page.getByTestId("leave-circle-open")).toHaveCount(0);
   });
 
+  test("an empty circle list renders the empty state, not an error", async ({ page }) => {
+    // The counterpart to the error handling in circles/page.tsx: a legitimately
+    // empty read must still render normally. Having just made a failed query
+    // throw, this is what stops the fix from over-reaching and turning "you're
+    // in no circles" into an error page.
+    await loginAs(page, "erin");
+    const response = await page.goto("/circles");
+    expect(response?.status()).toBe(200);
+    await expect(page.getByTestId("circles-empty")).toBeVisible();
+    await expect(
+      page.getByText(/Could not load circles/i),
+      "an empty result was reported as a failure"
+    ).toHaveCount(0);
+  });
+
   test("Circles is reachable from the sidebar", async ({ page }) => {
     await loginAs(page, "alice");
     await page.goto("/dashboard/trending");

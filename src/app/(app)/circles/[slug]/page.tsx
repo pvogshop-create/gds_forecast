@@ -27,22 +27,39 @@ export default async function CirclePage({ params }: CirclePageProps) {
   const { slug } = await params;
   const supabase = await createClient();
 
-  const { data: circleRow } = await supabase
+  const { data: circleRow, error } = await supabase
     .from("circles")
     .select("*")
     .eq("slug", slug)
     .maybeSingle();
 
-  // notFound() rather than a "you don't have access" page: circles_select
-  // already filtered this out, and distinguishing "private" from "nonexistent"
-  // would confirm the circle exists to someone who cannot see it.
+  // A query ERROR is not a 404. Letting it fall through to notFound() would
+  // render a missing table or a recursive policy as "this circle doesn't
+  // exist" — the failure would look like ordinary, correct access control and
+  // nobody would ever investigate it.
+  if (error) {
+    throw new Error(
+      `Could not load circle "${slug}": ${error.message} (${error.code}). ` +
+        `This is a failed query, not a denied one — RLS denies by returning no rows.`
+    );
+  }
+
+  // No row, no error: this is the real denial path. notFound() rather than a
+  // "you don't have access" page, because distinguishing private from
+  // nonexistent would confirm the circle exists to someone not allowed to know.
   if (!circleRow) notFound();
   const circle = circleRow as Circle;
 
-  const { data: memberRows } = await supabase
+  const { data: memberRows, error: memberError } = await supabase
     .from("circle_members")
     .select("*, profiles:user_id (username, display_name, avatar_url)")
     .eq("circle_id", circle.id);
+
+  if (memberError) {
+    throw new Error(
+      `Could not load the roster for "${slug}": ${memberError.message} (${memberError.code}).`
+    );
+  }
 
   const members = (memberRows ?? []) as CircleMemberWithProfile[];
   const me = members.find((m) => m.user_id === user.id);

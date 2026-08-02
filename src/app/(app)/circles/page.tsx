@@ -8,7 +8,7 @@ export default async function CirclesPage() {
   const user = await requireAuth();
   const supabase = await createClient();
 
-  const { data: memberships } = await supabase
+  const { data: memberships, error: membershipError } = await supabase
     .from("circle_members")
     .select("circle_id, role")
     .eq("user_id", user.id);
@@ -23,10 +23,24 @@ export default async function CirclesPage() {
   // One query, not two: circles_select already returns exactly the circles this
   // user may see — the ones they belong to plus every open circle — so filtering
   // by membership client-side would just re-derive what RLS already decided.
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("circles")
     .select("*")
     .order("member_count", { ascending: false });
+
+  // An RLS-filtered read returns `[]` with no error, and that is the normal
+  // "you're in no circles" case. A genuine error is something else entirely —
+  // a missing table (no 0029 here), or a recursive policy (42P17, the 0024
+  // bug) — and must not be laundered into the same empty state. Conflating
+  // them is precisely how the leagues outage stayed invisible for months.
+  const failure = error ?? membershipError;
+  if (failure) {
+    throw new Error(
+      `Could not load circles: ${failure.message} (${failure.code}). ` +
+        `A missing relation means this database has not had migration 0029 applied; ` +
+        `42P17 would mean a circle policy has become recursive.`
+    );
+  }
 
   const circles = (data ?? []) as Circle[];
   const mine = circles.filter((c) => myRoles.has(c.id));

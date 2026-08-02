@@ -181,10 +181,20 @@ export default async function MorePage({
   const circleRoles = new Map<string, CircleRole>();
 
   if (tab === "circles") {
-    const { data: memberships } = await supabase
+    const { data: memberships, error: membershipError } = await supabase
       .from("circle_members")
       .select("circle_id, role")
       .eq("user_id", user.id);
+
+    // Same reasoning as /circles: an empty result is the legitimate "you're in
+    // no circles" state, an error is a broken database. They must not render
+    // identically.
+    if (membershipError) {
+      throw new Error(
+        `Could not load your circles: ${membershipError.message} (${membershipError.code}). ` +
+          `A missing relation means this database has not had migration 0029 applied.`
+      );
+    }
 
     for (const m of (memberships ?? []) as Pick<CircleMember, "circle_id" | "role">[]) {
       circleRoles.set(m.circle_id, m.role);
@@ -192,7 +202,15 @@ export default async function MorePage({
 
     const circleIds = [...circleRoles.keys()];
     if (circleIds.length > 0) {
-      const { data } = await supabase.from("circles").select("*").in("id", circleIds);
+      const { data, error } = await supabase
+        .from("circles")
+        .select("*")
+        .in("id", circleIds);
+      if (error) {
+        throw new Error(
+          `Could not load circles: ${error.message} (${error.code}).`
+        );
+      }
       circles = (data ?? []) as Circle[];
     }
   }
