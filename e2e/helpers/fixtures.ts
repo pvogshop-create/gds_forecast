@@ -20,7 +20,18 @@ export interface TestUser {
   coins: number;
 }
 
-export type UserKey = "admin" | "owner" | "alice" | "bob" | "broke";
+export type UserKey =
+  | "admin"
+  | "owner"
+  | "alice"
+  | "bob"
+  | "broke"
+  // The tier-visibility matrix (see TIER_MATRIX below). These four exist only
+  // to make the Circle/League boundaries adversarial.
+  | "carol"
+  | "dave"
+  | "erin"
+  | "mod";
 
 export const USERS: Record<UserKey, TestUser> = {
   // Must match ADMIN_EMAIL exactly or every /admin test fails at the middleware.
@@ -68,8 +79,107 @@ export const USERS: Record<UserKey, TestUser> = {
     displayName: "E2E Broke",
     coins: 25,
   },
+  // ── Tier matrix users ────────────────────────────────────────────────────
+  // In Alice's circle but NOT her league.
+  carol: {
+    key: "carol",
+    email: `e2e-carol@${TEST_EMAIL_DOMAIN}`,
+    username: "e2ecarol",
+    displayName: "E2E Carol",
+    coins: 1_000,
+  },
+  // Isolated from Alice entirely: different league AND different circle. The
+  // strongest negative case — Dave must not see anything of Alice's.
+  dave: {
+    key: "dave",
+    email: `e2e-dave@${TEST_EMAIL_DOMAIN}`,
+    username: "e2edave",
+    displayName: "E2E Dave",
+    coins: 1_000,
+  },
+  // In nothing at all. The public-only floor: whatever Erin can see is what an
+  // unaffiliated user sees, which is the definition of the public tier.
+  erin: {
+    key: "erin",
+    email: `e2e-erin@${TEST_EMAIL_DOMAIN}`,
+    username: "e2eerin",
+    displayName: "E2E Erin",
+    coins: 1_000,
+  },
+  // Moderator of Circle X — distinct from its creator, so creator/moderator/
+  // member is a three-way distinction the tests can assert on rather than two.
+  // Approves Circle X market suggestions once step 14 lands.
+  mod: {
+    key: "mod",
+    email: `e2e-mod@${TEST_EMAIL_DOMAIN}`,
+    username: "e2emod",
+    displayName: "E2E Mod",
+    coins: 1_000,
+  },
 };
 
 export const ALL_USER_KEYS = Object.keys(USERS) as UserKey[];
 
 export const ALL_TEST_EMAILS = ALL_USER_KEYS.map((k) => USERS[k].email);
+
+/**
+ * The seven-user tier matrix (plan.md step 4 / spec §10.3).
+ *
+ * These fixtures exist so that tier boundaries can be tested *adversarially*.
+ * Membership is what makes a boundary real, so each user is defined by what
+ * they are NOT in as much as what they are in:
+ *
+ * | User  | League A | League B | Circle X    | Circle Y | Proves                                |
+ * |-------|----------|----------|-------------|----------|---------------------------------------|
+ * | owner |          |          | creator     | creator  | creator ≠ moderator ≠ member           |
+ * | alice | ✓        |          | member      |          | sees public + League A + Circle X       |
+ * | bob   | ✓        |          |             |          | same league as Alice, NOT her circle    |
+ * | carol |          |          | member      |          | same circle as Alice, NOT her league    |
+ * | dave  |          | ✓        |             | member   | fully isolated from Alice               |
+ * | erin  |          |          |             |          | public-only floor                       |
+ * | mod   |          |          | moderator   |          | moderator powers, not creator powers    |
+ *
+ * `owner` doubles as both circles' creator rather than adding a tenth seeded
+ * user. It sits outside the alice/bob/carol/dave/erin matrix, so it never
+ * pollutes a negative assertion.
+ *
+ * The circle rows land in 0029; the LEAGUE rows are seeded by whichever spec
+ * needs them, since leagues are per-test fixtures rather than global ones.
+ */
+export const CIRCLES = {
+  x: {
+    key: "x" as const,
+    name: "E2E Circle X",
+    slug: "e2e-circle-x",
+    joiningPolicy: "invite_code" as const,
+    /** creator is `owner`; alice + carol are members; mod is a moderator. */
+    members: [
+      { user: "alice" as UserKey, role: "member" as const },
+      { user: "carol" as UserKey, role: "member" as const },
+      { user: "mod" as UserKey, role: "moderator" as const },
+    ],
+  },
+  y: {
+    key: "y" as const,
+    name: "E2E Circle Y",
+    slug: "e2e-circle-y",
+    joiningPolicy: "invite_code" as const,
+    members: [{ user: "dave" as UserKey, role: "member" as const }],
+  },
+  /** Open-join circle, so the `joining_policy = 'open'` branch of
+   *  circles_select and join_circle() has something to test against. */
+  open: {
+    key: "open" as const,
+    name: "E2E Circle Open",
+    slug: "e2e-circle-open",
+    joiningPolicy: "open" as const,
+    members: [],
+  },
+} as const;
+
+export type CircleKey = keyof typeof CIRCLES;
+
+export const ALL_CIRCLE_KEYS = Object.keys(CIRCLES) as CircleKey[];
+
+/** Every circle is created by `owner` — see the note on CIRCLES above. */
+export const CIRCLE_CREATOR: UserKey = "owner";

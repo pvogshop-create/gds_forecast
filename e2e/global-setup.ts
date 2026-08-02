@@ -1,7 +1,7 @@
 import { assertLocalSupabase } from "./helpers/env";
 import { admin } from "./helpers/db";
 import { acquireSuiteLock } from "./helpers/lock";
-import { cleanupAll, seedUsers } from "./helpers/seed";
+import { cleanupAll, seedMatrixCircles, seedUsers } from "./helpers/seed";
 
 /**
  * Runs once before the suite. Establishes a known-empty, known-seeded database
@@ -65,7 +65,19 @@ export default async function globalSetup(): Promise<void> {
 
   console.log("[e2e] seeding fixture users…");
   const users = await seedUsers();
+
+  // The tier matrix (plan.md step 4). Circles are global rather than per-spec
+  // because membership is an identity of the fixture users themselves — Carol
+  // IS "in Alice's circle but not her league", and that has to hold in every
+  // spec, not just the one that seeded it. Markets and leagues stay per-spec
+  // for the opposite reason: their pools are mutable shared state.
+  console.log("[e2e] seeding tier-matrix circles…");
+  const circles = await seedMatrixCircles();
+
   console.log(
-    `[e2e] ready — ${users.length} users: ${users.map((u) => u.username).join(", ")}`
+    `[e2e] ready — ${users.length} users: ${users.map((u) => u.username).join(", ")}` +
+      ` · ${Object.keys(circles).length} circles: ${Object.values(circles)
+        .map((c) => c.slug)
+        .join(", ")}`
   );
 }

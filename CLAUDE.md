@@ -112,18 +112,23 @@ or suggest it as an improvement. Conventional Commit messages still apply
 (`type(scope): description`).
 
 ## Migration sequence
-> **Numbering has shifted +1 five times.** `0022` went to the de-brand data migration. `0023` went to
+> **Numbering has shifted +1 six times.** `0022` went to the de-brand data migration. `0023` went to
 > the `league_win` enum + league-chat realtime fixes. `0024` went to the league RLS
 > **infinite-recursion** fix (those three on 2026-07-29). `0026` went to the resolution-notification
-> fix and `0027` to the unlocked read-modify-write fix (both 2026-07-30). Every one of the latter four
-> was a silent breakage found by the new E2E suite (see `MIGRATIONS_LOG.md`). De-trending is therefore
-> **0025**, the tier work proper starts at **0028**, and profiles lands at **0036**. Spec §7 and §10.7
-> both match this numbering.
+> fix and `0027` to the unlocked read-modify-write fix (both 2026-07-30), and `0028` to the O/U
+> push-streak fix (2026-07-31). Every one of the latter five was a silent breakage found by the new
+> E2E suite (see `MIGRATIONS_LOG.md`). De-trending is therefore **0025**, the tier work proper starts
+> at **0029**, and profiles lands at **0037**. Spec §7 and §10.7 both match this numbering.
 >
 > **Check `ls supabase/migrations/` before naming a new file.** This has now bitten twice in one day:
 > `0026_resolution_notifications.sql` was first written as `0025_…`, and
 > `0027_locked_line_and_referral.sql` was first written as `0026_…`, each colliding with a migration
 > that landed while it was being written. `db push` rejects duplicate version prefixes.
+>
+> **And renumber the rest of the sequence in the same commit that consumes a number.** When `0028`
+> took the push-streak slot on 2026-07-31, `plan.md` and spec §7/§10.7 were left calling circles
+> `0028` for two days — while spec §12.4 correctly credited `0028` to the push fix, so the spec
+> contradicted itself. Fixed 2026-08-02.
 
 0. **De-GDS cleanup (app work, no migration):** ✅ **DONE** — `@gds.org` auth check removed, GDS copy
    stripped, package renamed, seed script de-branded, palette recolored to black/white/purple.
@@ -172,7 +177,18 @@ or suggest it as an improvement. Conventional Commit messages still apply
    so the streak trigger counted a tie as a win. `update_user_streaks` now recognises a push by
    comparing `markets.resolution_value` to `positions.ou_line_at_bet` — the resolver's own test —
    and leaves both streaks untouched.
-8. **0029** — `circles` + `circle_members` tables (+ member-count trigger, RLS).
+8. **0029** — ✅ **APPLIED (local only)** `circles` + `circle_members` tables (+ member-count
+   trigger, RLS). Beyond spec §2.1–2.2 it adds `max_members` (default 500), a `^[a-z0-9-]{3,40}$`
+   CHECK on `slug` (it is a route segment), the `is_circle_member()` / `is_circle_moderator()`
+   SECURITY DEFINER helpers that keep the policies out of the 0024 recursion trap, and three RPCs:
+   `create_circle()` (admin-only; circle + creator membership in one transaction),
+   `find_circle_by_invite_code()` (a prospective member cannot read the circle, so a direct lookup
+   would call every valid code invalid — the exact bug leagues shipped with), and `join_circle()`
+   (the only write path into `circle_members`, whose INSERT policy is service_role-only; enforces
+   `joining_policy` and the cap under the circle's row lock). **Circle creation is admin-only for
+   now** — the `role` column already carries `creator`/`moderator`/`member`, so delegating to circle
+   admins later is a policy change, not a migration. Covered by `e2e/circles.spec.ts` (51 tests),
+   with both SELECT policies mutation-tested.
 9. **0030** — market tier columns (`visibility_tier`, `league_id`, `circle_id`) + scope constraint, all defaulting to `public`.
 10. **0031** — tier-aware RLS: the `can_view_market()` helper + rewritten SELECT policies on all market-joined tables, **and `can_view_market()` added to the `WITH CHECK` of their INSERT policies**. The existing `mc_insert` (0019) and `reactions_insert` (0016) test authorship only (`user_id = auth.uid()`), so tier-scoping reads alone still lets an outsider who knows a private market's UUID write a comment or reaction into it. **The critical migration — ships only when the full positive AND negative matrix is green for reads *and* writes.**
 11. **0032** — league gating (`tournament_enabled`, nullable `buy_in_coins`) + `leagues.circle_id`.

@@ -1,6 +1,14 @@
 import { admin } from "./db";
 import { TEST_PASSWORD } from "./env";
-import { ALL_TEST_EMAILS, USERS, type UserKey } from "./fixtures";
+import {
+  ALL_CIRCLE_KEYS,
+  ALL_TEST_EMAILS,
+  CIRCLE_CREATOR,
+  CIRCLES,
+  USERS,
+  type CircleKey,
+  type UserKey,
+} from "./fixtures";
 
 /**
  * Seeding and teardown. Everything here runs as service_role, which is required
@@ -640,6 +648,152 @@ export async function addLeagueMember(
   if (error) throw new Error(`addLeagueMember failed: ${error.message}`);
 }
 
+// ─── Circles (0029) ─────────────────────────────────────────────────────────
+
+export interface CreateCircleOptions {
+  name?: string;
+  slug?: string;
+  creator?: UserKey;
+  description?: string;
+  joiningPolicy?: "open" | "invite_code" | "request_approval";
+  members?: { user: UserKey | string; role?: "moderator" | "member" }[];
+}
+
+export interface SeededCircle {
+  id: string;
+  slug: string;
+  inviteCode: string;
+}
+
+let circleCounter = 0;
+
+/**
+ * Creates a circle through the `create_circle` RPC rather than a raw insert,
+ * so the seed exercises the same path the admin dashboard uses — including the
+ * creator's role='creator' member row, which the RPC writes in the same
+ * transaction.
+ *
+ * Members are added by DIRECT INSERT, not through `join_circle()`. That is not
+ * a shortcut: `join_circle` derives the joining user from `auth.uid()`, and the
+ * service-role client has no uid, so the RPC correctly refuses it. Seeding a
+ * membership *for* someone else is a service_role operation by design.
+ */
+export async function createCircle(
+  opts: CreateCircleOptions = {}
+): Promise<SeededCircle> {
+  circleCounter += 1;
+  const stamp = `${circleCounter}-${Date.now()}`;
+  const {
+    name = `${E2E_PREFIX} Circle ${stamp}`,
+    // Slug has a ^[a-z0-9-]{3,40}$ CHECK, so it cannot carry the "[E2E] "
+    // prefix the other fixtures use. Cleanup keys on the name instead.
+    slug = `e2e-circle-${stamp}`.slice(0, 40).replace(/-$/, ""),
+    creator = "owner",
+    description = "Seeded by the E2E suite.",
+    joiningPolicy = "invite_code",
+    members = [],
+  } = opts;
+
+  const { data, error } = await admin.rpc("create_circle", {
+    p_name: name.startsWith(E2E_PREFIX) ? name : `${E2E_PREFIX} ${name}`,
+    p_slug: slug,
+    p_creator_id: resolveUserId(creator),
+    p_description: description,
+    p_joining_policy: joiningPolicy,
+  });
+  if (error || !data) throw new Error(`createCircle failed: ${error?.message}`);
+
+  const circle = (Array.isArray(data) ? data[0] : data) as {
+    id: string;
+    slug: string;
+    invite_code: string;
+  };
+
+  for (const m of members) {
+    await addCircleMember(circle.id, resolveUserId(m.user), m.role ?? "member");
+  }
+
+  return { id: circle.id, slug: circle.slug, inviteCode: circle.invite_code };
+}
+
+export async function addCircleMember(
+  circleId: string,
+  memberUserId: string,
+  role: "creator" | "moderator" | "member" = "member"
+): Promise<void> {
+  const { error } = await admin
+    .from("circle_members")
+    .insert({ circle_id: circleId, user_id: memberUserId, role });
+  if (error) throw new Error(`addCircleMember failed: ${error.message}`);
+}
+
+/**
+ * Seeds the three matrix circles from `fixtures.ts` idempotently: an existing
+ * one is adopted (and its roster re-synced) rather than duplicated, because the
+ * slug is UNIQUE and a second run would otherwise fail on it.
+ */
+export async function seedMatrixCircles(): Promise<Record<CircleKey, SeededCircle>> {
+  const out = {} as Record<CircleKey, SeededCircle>;
+
+  for (const key of ALL_CIRCLE_KEYS) {
+    const spec = CIRCLES[key];
+
+    const { data: existing, error: readError } = await admin
+      .from("circles")
+      .select("id, slug, invite_code")
+      .eq("slug", spec.slug)
+      .maybeSingle();
+    if (readError) {
+      throw new Error(`seedMatrixCircles read(${spec.slug}) failed: ${readError.message}`);
+    }
+
+    if (existing) {
+      // Adopt. Re-point the creator in case a previous run's users were purged,
+      // then rebuild the roster so role changes in fixtures.ts actually take.
+      await admin
+        .from("circles")
+        .update({ creator_id: userId(CIRCLE_CREATOR) })
+        .eq("id", existing.id);
+      await admin.from("circle_members").delete().eq("circle_id", existing.id);
+      await addCircleMember(existing.id, userId(CIRCLE_CREATOR), "creator");
+      for (const m of spec.members) {
+        await addCircleMember(existing.id, userId(m.user), m.role);
+      }
+      out[key] = {
+        id: existing.id,
+        slug: existing.slug as string,
+        inviteCode: existing.invite_code as string,
+      };
+      continue;
+    }
+
+    out[key] = await createCircle({
+      name: spec.name,
+      slug: spec.slug,
+      creator: CIRCLE_CREATOR,
+      joiningPolicy: spec.joiningPolicy,
+      members: spec.members.map((m) => ({ user: m.user, role: m.role })),
+    });
+  }
+
+  return out;
+}
+
+/** Resolve a seeded matrix circle by slug. Used by specs that need its id. */
+export async function getCircleBySlug(slug: string): Promise<SeededCircle> {
+  const { data, error } = await admin
+    .from("circles")
+    .select("id, slug, invite_code")
+    .eq("slug", slug)
+    .single();
+  if (error || !data) throw new Error(`getCircleBySlug(${slug}) failed: ${error?.message}`);
+  return {
+    id: data.id,
+    slug: data.slug as string,
+    inviteCode: data.invite_code as string,
+  };
+}
+
 // ─── Cleanup ────────────────────────────────────────────────────────────────
 
 /**
@@ -684,6 +838,12 @@ export async function cleanupAll(): Promise<void> {
   await purge("leagues by prefix", () =>
     admin.from("leagues").delete().like("name", `${E2E_PREFIX}%`)
   );
+  // Circles cascade to circle_members, so this is the only circle delete needed.
+  // Keyed on name, not slug: the slug CHECK (^[a-z0-9-]{3,40}$) forbids the
+  // "[E2E] " prefix the other fixtures carry.
+  await purge("circles by prefix", () =>
+    admin.from("circles").delete().like("name", `${E2E_PREFIX}%`)
+  );
   await purge("suggestions by prefix", () =>
     admin.from("market_suggestions").delete().like("title", `${E2E_PREFIX}%`)
   );
@@ -695,6 +855,9 @@ export async function cleanupAll(): Promise<void> {
     );
     await purge("leagues by creator", () =>
       admin.from("leagues").delete().in("creator_id", testUserIds)
+    );
+    await purge("circles by creator", () =>
+      admin.from("circles").delete().in("creator_id", testUserIds)
     );
     await purge("notifications", () =>
       admin.from("notifications").delete().in("user_id", testUserIds)

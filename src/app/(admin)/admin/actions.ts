@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { americanOddsToProb } from "@/lib/market-logic";
-import type { MarketCategory } from "@/types/database";
+import type { CircleJoiningPolicy, MarketCategory } from "@/types/database";
 import type { MarketSuggestion } from "@/types/database";
 
 // ─── Create Market ────────────────────────────────────────────────────────────
@@ -67,6 +67,70 @@ export async function createMarket(formData: FormData) {
   if (error) throw new Error(`Failed to create market: ${error.message}`);
   revalidatePath("/admin");
   revalidatePath("/dashboard/trending");
+}
+
+// ─── Create Circle ────────────────────────────────────────────────────────────
+/**
+ * Circle creation is admin-only (0029): `circles_insert` is service_role, so
+ * this is the only path that exists.
+ *
+ * It calls the `create_circle` RPC rather than inserting directly, because the
+ * circle row and the creator's membership row must land in one transaction —
+ * a circle with no creator membership is invisible to everyone including its
+ * own creator, since `circles_select` is membership-based. Splitting it into
+ * two client writes is the same read-modify-write shape 0027 removed from
+ * `setMarketLine()`.
+ */
+export async function createCircle(formData: FormData) {
+  const user = await requireAdmin();
+  const admin = createAdminClient();
+
+  const name = (formData.get("name") as string | null)?.trim() ?? "";
+  const rawSlug = (formData.get("slug") as string | null)?.trim() ?? "";
+  const description = (formData.get("description") as string | null)?.trim() ?? "";
+  const joiningPolicy =
+    (formData.get("joining_policy") as CircleJoiningPolicy | null) ?? "invite_code";
+
+  if (!name) throw new Error("Circle name is required.");
+
+  const slug = slugify(rawSlug || name);
+  if (!/^[a-z0-9-]{3,40}$/.test(slug)) {
+    throw new Error(
+      "Slug must be 3–40 characters of lowercase letters, numbers or hyphens."
+    );
+  }
+
+  const { error } = await admin.rpc("create_circle", {
+    p_name: name,
+    p_slug: slug,
+    p_creator_id: user.id,
+    p_description: description || null,
+    p_joining_policy: joiningPolicy,
+  });
+
+  if (error) {
+    // 23505 is the UNIQUE violation on slug — by far the most likely failure,
+    // and the generic message would send the admin hunting for the wrong thing.
+    if (error.code === "23505") {
+      throw new Error(`The slug "${slug}" is already taken. Choose another.`);
+    }
+    throw new Error(`Failed to create circle: ${error.message}`);
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/circles");
+}
+
+/** Mirrors the ^[a-z0-9-]{3,40}$ CHECK on `circles.slug`. */
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "");
 }
 
 // ─── Resolve Market ───────────────────────────────────────────────────────────

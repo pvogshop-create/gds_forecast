@@ -17,12 +17,19 @@ Spawn the `update` agent and relay what it says.
 
      > Report where the Forecast tier refactor stands. Follow your output format exactly:
      > Where you are · What's happening · Evidence · Done / not done · Next step.
+     > Write it for someone who has not read the spec: plain English, explain each piece of
+     > jargon the first time it appears, and describe what each migration *does* rather than
+     > naming it. Keep step and migration numbers as supporting detail in parentheses.
      > Read-only — do not edit anything, and do not run tests or builds.
      > [Focus: `$ARGUMENTS`] — include this line only if an argument was passed.
 
 2. **Relay the agent's report to the user verbatim.** Subagent reports are not shown to the user, so
    anything you summarize instead of passing through is lost. Reproduce all five sections, including
    the evidence table. Do not compress it, re-order it, or add commentary on top.
+
+   The one exception: if the report still leans on unexplained jargon, add a brief plain-English
+   gloss in parentheses next to the term. Clarify wording only — never change a finding, a citation,
+   or the next step.
 
 3. If the agent flags a doc that disagrees with observed state, surface that line — do not act on it.
    Fixing drift is a separate, explicit request.

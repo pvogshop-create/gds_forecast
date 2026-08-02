@@ -1,7 +1,17 @@
 // src/types/database.ts
 // Manual TypeScript types matching the Supabase schema defined in migrations.
-// Replace with generated types once the Supabase project is set up:
-//   npx supabase gen types typescript --project-id YOUR_PROJECT_ID > src/types/database.ts
+//
+// ⚠️ DO NOT run `npx supabase gen types typescript` over this file.
+// It is hand-written and hand-maintained. The generator emits a completely
+// differently-shaped `Database` interface; this file exports app-shaped types
+// (`MarketCategory`, `Profile`, `Market`, …) that every import in `src/`
+// depends on, so overwriting it would break the app wholesale. An earlier
+// version of this header told you to replace it with generated types — that
+// was wrong, and it is the trap CLAUDE.md documents. Corrected 2026-08-02.
+//
+// After a schema change, hand-edit this file to match, then `npm run type-check`
+// and `npm run build` must pass clean. If you want generated types as a
+// cross-check, write them to `src/types/database.generated.ts` and diff by eye.
 
 export type MarketCategory = "sports" | "social" | "actions";
 export type MarketType = "binary" | "over_under";
@@ -222,6 +232,59 @@ export interface LeagueMessage {
   user_id: string;
   body: string;
   created_at: string;
+}
+
+// ─── Circles (0029) ─────────────────────────────────────────────────────────
+// The tier between a user and the public: a school, chapter, camp or team.
+// Circle-scoped markets do not exist yet — `markets.circle_id` arrives in 0030
+// and tier-aware visibility in 0031.
+
+/** Three roles, unlike leagues' two: circles need moderators distinct from the
+ *  single creator (they approve circle market suggestions and set lines). */
+export type CircleRole = "creator" | "moderator" | "member";
+
+/** `request_approval` is accepted by the CHECK constraint but rejected by
+ *  `join_circle()` — `circle_join_requests` (spec §2.3) is deferred. */
+export type CircleJoiningPolicy = "open" | "invite_code" | "request_approval";
+
+export interface Circle {
+  id: string;
+  name: string;
+  /** URL segment for /circles/[slug]. Constrained to ^[a-z0-9-]{3,40}$. */
+  slug: string;
+  description: string | null;
+  creator_id: string;
+  joining_policy: CircleJoiningPolicy;
+  /** Null when read by a member who is not a moderator — see the detail page. */
+  invite_code: string | null;
+  /** Denormalized; kept in sync by the circle_member_count_sync trigger. */
+  member_count: number;
+  max_members: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CircleMember {
+  circle_id: string;
+  user_id: string;
+  role: CircleRole;
+  joined_at: string;
+}
+
+export interface CircleMemberWithProfile extends CircleMember {
+  profiles: Pick<Profile, "username" | "display_name" | "avatar_url">;
+}
+
+/** Return shape of the `find_circle_by_invite_code` RPC. Deliberately narrow:
+ *  a prospective member can resolve a circle from its code without being able
+ *  to read private circles generally. */
+export interface FindCircleByCodeResult {
+  id: string;
+  name: string;
+  slug: string;
+  member_count: number;
+  max_members: number;
+  is_member: boolean;
 }
 
 export interface LeagueMessageWithProfile extends LeagueMessage {

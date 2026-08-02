@@ -1,7 +1,7 @@
 # Forecast — Tier Refactor Plan
 
 28 steps, in order. Each is one thing that changes, sized 30–60 min per part.
-Migrations 0025 → 0036, then the navigation overhaul.
+Migrations 0025 → 0037, then the navigation overhaul.
 
 ---
 
@@ -15,7 +15,7 @@ Much of it now does (see Part I): the local stack is up and a Playwright suite w
 auth helpers and a prod-lockout guard is working. What's still missing is the part that gates
 step 10 — the seven-user tier matrix and the visibility assertions themselves.
 
-That matters at **step 10 (migration 0030)**, which rewrites the market read policy from
+That matters at **step 10 (migration 0031)**, which rewrites the market read policy from
 `USING (auth.role() = 'authenticated')` — every logged-in user reads every market — into tier-scoped
 visibility. Get it wrong and private league markets leak between teenagers, and per spec §10.1 it
 fails **silently**: no exception, no build error, no type error. The only way to catch it is querying
@@ -44,13 +44,20 @@ becomes a hard gate at step 10, before real users.
   cron and the admin dashboard all worked. The E2E suite caught it on its first run against real
   authenticated sessions.
 
-De-trending therefore starts at **0025** and profiles lands at **0036**. Both fixes are on prod.
+De-trending therefore starts at **0025** and profiles lands at **0037**. Both fixes are on prod.
 
-Two more numbers went the same way on 2026-07-30. **0026** is the resolution-notification fix (losing
+Three more numbers went the same way. **0026** is the resolution-notification fix (losing
 bettors were never told their market resolved — both resolve functions notified winners only, and the
 O/U push branch refunded coins in total silence). **0027** is the unlocked read-modify-write fix
 (`setMarketLine()` recomputed pools in TypeScript across two unlocked transactions, and
-`record_referral()` could mint 500 coins twice). So the tier work proper begins at **0028**.
+`record_referral()` could mint 500 coins twice) — both on 2026-07-30. **0028** is the O/U push-streak
+fix on 2026-07-31 (a push is stored as `status='won'`, so the streak trigger counted a tie as a win).
+So the tier work proper begins at **0029**.
+
+> This file said **0028** for circles until 2026-08-02, by which time `0028_ou_push_streak.sql` had
+> taken the number — the step headers below were one behind reality for two days. Renumbered when
+> 0029 shipped. **`ls supabase/migrations/` before naming a file, and renumber the remaining steps in
+> the same commit that consumes a number.**
 
 That second one is the strongest possible argument for the ordering this plan takes: a policy bug
 that broke an entire feature was invisible to every form of testing *except* querying as a real
@@ -87,13 +94,14 @@ of the full verification protocol.
 
 *No schema changes. This builds the thing that makes every later change safe.*
 
-> **Status 2026-07-30:** steps 1, 2, 3, 5 and 6 are **done**, built as a **Playwright** suite rather
-> than the Vitest one this plan originally specified — a fine substitution, and the descriptions
-> below match what exists. 218 tests across 20 spec files.
+> **Status 2026-08-02: Part I is complete.** All six steps are done, built as a **Playwright** suite
+> rather than the Vitest one this plan originally specified — a fine substitution, and the
+> descriptions below match what exists. 310 tests across 21 spec files.
 >
-> **Only step 4 remains, and it is what blocks step 10.** The tier matrix needs four more users, and
-> two of them can't be finished until step 8 creates `circles` — so the honest order is
-> **8 → finish 4 → 10**, not the numeric order.
+> Step 4 was the last one, and it landed **with step 8** exactly as predicted: the tier matrix needed
+> four more users, and two of them are defined by *circle* membership, so they could not be seeded
+> until `circles` existed. The honest order was **8 → finish 4 → 10**, not the numeric order, and
+> that is how it was done.
 >
 > The harness has already paid for itself twice: it found the `league_win` enum crash (0023) and the
 > league RLS recursion that had killed the whole leagues feature (0024). Both are fixed on prod.
@@ -125,17 +133,18 @@ database that already had state, so ordering bugs were likely. There were none.
 Rule still stands for everything ahead: fix by **adding a corrective migration**, never by editing an
 applied file (spec §10.9).
 
-## 4. Seven-user tier matrix (60 min) — ⚠️ PARTIAL
+## 4. Seven-user tier matrix (60 min) — ✅ DONE (with step 8, 2026-08-02)
 
-`e2e/helpers/fixtures.ts` seeds five users — `admin`, `owner`, `alice`, `bob`, `broke` — shaped for
-betting, league and admin flows. Those don't test tier visibility, because none of them differ by
-*membership* in the way the boundaries require.
+`e2e/helpers/fixtures.ts` seeded only five users — `admin`, `owner`, `alice`, `bob`, `broke` —
+shaped for betting, league and admin flows. Those don't test tier visibility, because none of them
+differ by *membership* in the way the boundaries require.
 
 The matrix needs the adversarial pairs: someone in Alice's league but **not** her circle, someone in
 her circle but **not** her league, someone isolated from both, and a public-only floor.
 
 | User | League A | League B | Circle X | Circle Y | Exists to prove |
 |---|---|---|---|---|---|
+| Owner | | | creator | creator | creator ≠ moderator ≠ member |
 | Alice | ✓ | | ✓ | | sees public + League A + Circle X |
 | Bob | ✓ | | | | same league as Alice, **not** her circle |
 | Carol | | | ✓ | | same circle as Alice, **not** her league |
@@ -144,8 +153,18 @@ her circle but **not** her league, someone isolated from both, and a public-only
 | Mod | | | moderator | | approves Circle X suggestions |
 | Admin | | | | | platform admin |
 
-Extend `fixtures.ts` with Carol, Dave, Erin and Mod. **Circle rows can't land until step 8 creates
-`circles`** — so seed the users and leagues now, circles later, both idempotently.
+`fixtures.ts` now declares nine users and three circles (X, Y, and an open one so the
+`joining_policy = 'open'` branch has something to test). `seedMatrixCircles()` in `seed.ts` creates
+them idempotently from `global-setup.ts` — adopting and re-syncing an existing circle rather than
+duplicating it, since `slug` is UNIQUE.
+
+Two decisions worth keeping:
+- **`owner` is both circles' creator** rather than a tenth seeded user. It sits outside the
+  alice/bob/carol/dave/erin matrix, so it can never pollute a negative assertion, and it makes
+  creator/moderator/member a real three-way split.
+- **Circles are seeded globally; markets and leagues stay per-spec.** Circle membership is part of
+  these users' identity — Carol *is* "in Alice's circle but not her league" in every spec. Market
+  pools are mutable shared state and must not be.
 
 ## 5. RLS harness (60 min) — ✅ DONE
 
@@ -227,18 +246,38 @@ sections, and the **Hot Streak / Cold Streak** cards — they read `profiles.win
 markets still 11, positions still 20. Delete the six dev/test leagues (Finding 5), checking for
 attached members/bets/chat first — destructive prod write. Log in `MIGRATIONS_LOG.md`, commit.
 
-## 8. Circles and circle members — 0028 (105 min)
+## 8. Circles and circle members — 0029 (105 min) — ✅ DONE
 
-**8a — Tables + RLS (60 min).** Per spec §2.1–2.2: `circles`, `circle_members`, the `member_count`
-sync trigger, slug uniqueness, and their RLS policies — **shipped together**, never a table without
-its policy. Extend step 4's seed script to create Circle X / Circle Y and place Alice, Carol, Mod,
-Dave.
+Applied local 2026-08-02 (`MIGRATIONS_LOG.md`). **Not on prod** — 0028 and 0029 are both still
+local-only and will be pushed together in a deliberate step.
 
-**8b — Verification (45 min).** Member-count trigger increments and decrements; a member reads their
-own circle; **a user cannot insert a `circle_members` row for someone else**; duplicate slug
-rejected; circle delete cascades with no orphans; creator gets `role='creator'`. Betting loop green.
+**8a — Tables + RLS.** ✅ `circles`, `circle_members`, the `member_count` sync trigger, slug
+uniqueness, and their RLS policies, shipped together. Beyond spec §2.1–2.2: `max_members` (default
+500), a `^[a-z0-9-]{3,40}$` CHECK on `slug` since it is a route segment, the
+`is_circle_member()` / `is_circle_moderator()` SECURITY DEFINER helpers, and three RPCs —
+`create_circle()`, `find_circle_by_invite_code()`, `join_circle()`.
 
-## 9. Market tier columns — 0029 (90 min)
+**8b — Verification.** ✅ `e2e/circles.spec.ts`, 51 tests. Everything the plan asked for, plus the
+negative-write matrix, the join-path authorization cases, and cap enforcement under concurrency.
+**The policies were mutation-tested**: rewriting `circles_select` and `circle_members_select` to
+`USING (true)` turns exactly the non-member read tests red and nothing else, which is the proof the
+assertions are wired to the policy rather than passing vacuously. Betting loop green; full suite 307
+passed / 3 skipped.
+
+**Also done here — step 4 (the seven-user tier matrix), which gates step 10.** `fixtures.ts` now
+seeds nine users; `carol`, `dave`, `erin` and `mod` were added along with Circle X / Circle Y / an
+open circle, seeded idempotently in `global-setup.ts`. `owner` doubles as both circles' creator, so
+creator/moderator/member is a genuine three-way distinction without a tenth user.
+
+**Two drive-by fixes found while doing this:**
+- `expectCannotWrite()` in `e2e/helpers/rls.ts` hardcoded `select("id")` for its did-anything-land
+  check, which throws `42703` on every composite-PK table — including `market_reactions`, one of the
+  six tables **step 10d** must write negative-write tests against. Now `select("*")`.
+- `src/types/database.ts`'s own header still told the reader to overwrite it with
+  `supabase gen types`. CLAUDE.md claims that file documents itself as hand-written; it documented
+  the opposite. Corrected in place.
+
+## 9. Market tier columns — 0030 (90 min)
 
 **9a — Columns + constraint (45 min).** Per spec §3.1: `visibility_tier`, `league_id`, `circle_id` on
 `markets`, all defaulting to public, plus the scope CHECK.
@@ -251,7 +290,7 @@ reject: a public market with either scope id set; a league market with null `lea
 market with null `circle_id`; and **any** market with both ids. Verify cascades — deleting a league
 removes its league-tier markets and their positions/comments, and reaches **no** public rows.
 
-## 10. Tier-aware RLS — 0030 (5h) ⚠️ the critical one
+## 10. Tier-aware RLS — 0031 (5h) ⚠️ the critical one
 
 The migration that leaks data if it's wrong. Tests are written **red, before the policies exist**.
 
@@ -324,7 +363,7 @@ yours; wiring the restore and pointing the suite at it is scriptable.
 
 # Part III — Leagues and scoring (steps 11–12)
 
-## 11. League tournament gating — 0031 (90 min)
+## 11. League tournament gating — 0032 (90 min)
 
 **11a — Migration (45 min).** Per spec §3.3: `tournament_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
 `leagues.circle_id` (nullable, `ON DELETE SET NULL`), and `buy_in_coins` dropped to nullable. Every
@@ -335,7 +374,7 @@ retained but dormant.
 **a non-owner cannot flip it** (an RPC/RLS check, not just UI); nullable buy-in accepted; league chat,
 standings, membership and invite codes all still work. Wire the settings toggle to the owner check.
 
-## 12. Model (b) tournament scoring — 0032 (3.5h)
+## 12. Model (b) tournament scoring — 0033 (3.5h)
 
 A bet counts for a league if the market is league-exclusive to it (**automatic**) or the user tagged
 a public/circle bet into it (**manual**). Circle markets never auto-count, even inside that circle
@@ -369,7 +408,7 @@ for no league; a market resolving outside any week simply doesn't score.
 
 ---
 
-# Part IV — Creation paths (steps 13–15) · migration 0033
+# Part IV — Creation paths (steps 13–15) · migration 0034
 
 ## 13. League market direct-create (105 min)
 
@@ -409,7 +448,7 @@ A reporter still can't vote on their own report.
 
 # Part V — Social and profiles (steps 16–19)
 
-## 16. Comment threading and reactions — 0034 (90 min)
+## 16. Comment threading and reactions — 0035 (90 min)
 
 **16a — Migration (45 min).** Per spec §3.6 and §2.4: `market_comments.parent_comment_id` (self-FK,
 cascade) with a partial index, plus `comment_reactions` keyed `(comment_id, user_id, emoji)`. Note the
@@ -421,7 +460,7 @@ evolve without a migration; validate in the app layer.
 read or react to a comment on a market you can't see**, including by direct id. Confirm the existing
 Realtime subscription still fires.
 
-## 17. Notification types — 0035a (45 min)
+## 17. Notification types — 0036a (45 min)
 
 Deliberately **its own migration, ahead of any code that inserts these values.**
 `ALTER TYPE notification_type ADD VALUE IF NOT EXISTS` for `market_about_you`, `circle_joined`,
@@ -431,7 +470,7 @@ Per spec §10.8: a newly added enum value **cannot be used in the transaction th
 some Postgres versions `ADD VALUE` can't run in a transaction block at all. Verify the values are
 usable *after* apply before writing anything that inserts them.
 
-## 18. Activity feed scoping and new notifications — 0035b (165 min)
+## 18. Activity feed scoping and new notifications — 0036b (165 min)
 
 **18a — Column + insert audit (60 min).** `activity_feed.circle_id` (spec §3.10), then **audit every
 `INSERT INTO public.activity_feed` call site** and confirm each carries tier context. Spec §10.7 names
@@ -459,7 +498,7 @@ in the existing notifications UI.
 sign up to see"). That needs an out-of-band share mechanic, not a notification — spec Decision #5
 defers it to the growth phase.
 
-## 19. Profile bio and the missing edit route — 0036 (60 min)
+## 19. Profile bio and the missing edit route — 0037 (60 min)
 
 `profiles.bio TEXT` (spec §3.11), then fix Finding 6: `profile/[username]/page.tsx:111` renders an
 "Edit profile" button linking to `/profile/[username]/edit`, and **that route doesn't exist** — the

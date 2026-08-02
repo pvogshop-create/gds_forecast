@@ -165,7 +165,14 @@ export async function expectCannotWrite(
   // Belt and braces: prove the row is genuinely absent, not merely reported as
   // rejected. Match on the payload's own scalar columns; nulls and nested
   // values are skipped because PostgREST cannot filter them by equality.
-  let query = admin.from(table).select("id");
+  //
+  // `select("*")` rather than `select("id")`: several market-joined tables are
+  // composite-keyed and have no `id` column at all (`circle_members`,
+  // `market_reactions`, `league_members`, `positions`' siblings). Naming `id`
+  // made this follow-up read fail with 42703 on exactly the tables step 10d
+  // needs negative-write coverage for, which surfaced as a thrown "nothing
+  // landed is unproven" rather than as a passing or failing assertion.
+  let query = admin.from(table).select("*");
   let filtered = false;
   for (const [column, value] of Object.entries(row)) {
     if (value === null || value === undefined || typeof value === "object") continue;

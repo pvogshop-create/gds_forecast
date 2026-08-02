@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/auth";
 import { Avatar } from "@/components/ui/Avatar";
-import { CopyInviteCode } from "./CopyInviteCode";
+import { CopyInviteCode } from "@/components/ui/CopyInviteCode";
 import { LeagueChat } from "./LeagueChat";
 import { formatCoins, formatDisplayName } from "@/lib/utils";
 import type {

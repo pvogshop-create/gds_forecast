@@ -7,6 +7,8 @@ import { SuggestForm } from "@/app/(app)/suggest/SuggestForm";
 import { LeagueCard } from "@/components/leagues/LeagueCard";
 import { CreateLeagueButton } from "@/app/(app)/leagues/CreateLeagueButton";
 import { JoinLeagueButton } from "@/app/(app)/leagues/JoinLeagueButton";
+import { CircleCard } from "@/components/circles/CircleCard";
+import { JoinCircleButton } from "@/app/(app)/circles/JoinCircleButton";
 import { CategoryBadge, StatusBadge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { markAllNotificationsRead } from "@/app/(app)/notifications/actions";
@@ -23,6 +25,9 @@ import { SubmitReportForm } from "./SubmitReportForm";
 import type {
   Notification,
   ActivityFeedEntryWithProfile,
+  Circle,
+  CircleMember,
+  CircleRole,
   Profile,
   MarketSuggestion,
   League,
@@ -32,7 +37,13 @@ import type {
   Market,
 } from "@/types/database";
 
-type TabId = "bets" | "notifications" | "suggest" | "leagues" | "reports";
+type TabId =
+  | "bets"
+  | "notifications"
+  | "suggest"
+  | "circles"
+  | "leagues"
+  | "reports";
 
 export default async function MorePage({
   searchParams,
@@ -43,6 +54,7 @@ export default async function MorePage({
   const tab: TabId =
     rawTab === "notifications" ||
     rawTab === "suggest" ||
+    rawTab === "circles" ||
     rawTab === "leagues" ||
     rawTab === "reports"
       ? rawTab
@@ -162,6 +174,29 @@ export default async function MorePage({
     }
   }
 
+  // ── Circles tab ────────────────────────────────────────────────────────────
+  // The desktop entry point is the sidebar; this exists so /circles is reachable
+  // on mobile, where the bottom tab bar has no room for it.
+  let circles: Circle[] = [];
+  const circleRoles = new Map<string, CircleRole>();
+
+  if (tab === "circles") {
+    const { data: memberships } = await supabase
+      .from("circle_members")
+      .select("circle_id, role")
+      .eq("user_id", user.id);
+
+    for (const m of (memberships ?? []) as Pick<CircleMember, "circle_id" | "role">[]) {
+      circleRoles.set(m.circle_id, m.role);
+    }
+
+    const circleIds = [...circleRoles.keys()];
+    if (circleIds.length > 0) {
+      const { data } = await supabase.from("circles").select("*").in("id", circleIds);
+      circles = (data ?? []) as Circle[];
+    }
+  }
+
   // ── Reports tab ────────────────────────────────────────────────────────────
   let incidentReports: IncidentReportWithMarket[] = [];
   let reportableMarkets: Pick<Market, "id" | "title" | "market_type" | "ou_unit">[] = [];
@@ -272,6 +307,7 @@ export default async function MorePage({
               badge: tab === "notifications" && unreadCount > 0 ? unreadCount : null,
             },
             { id: "suggest" as TabId, label: "Suggest", badge: null },
+            { id: "circles" as TabId, label: "Circles", badge: null },
             { id: "leagues" as TabId, label: "Leagues", badge: null },
             { id: "reports" as TabId, label: "Reports", badge: null },
           ] as const
@@ -640,6 +676,58 @@ export default async function MorePage({
               </ul>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Circles ───────────────────────────────────────────────────────── */}
+      {tab === "circles" && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h1 className="text-xl font-bold" style={{ color: "var(--color-ink-primary)" }}>
+              Circles
+            </h1>
+            <JoinCircleButton />
+          </div>
+
+          {circles.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center"
+              style={{
+                backgroundColor: "var(--color-bg-card)",
+                border: "1px solid var(--color-border)",
+              }}
+              data-testid="more-circles-empty"
+            >
+              <div className="text-4xl mb-3">🎓</div>
+              <p
+                className="font-medium text-sm mb-2"
+                style={{ color: "var(--color-ink-primary)" }}
+              >
+                You haven&apos;t joined any circles yet.
+              </p>
+              <p className="text-xs" style={{ color: "var(--color-ink-tertiary)" }}>
+                Join one with an invite code from someone already in it.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {circles.map((circle) => (
+                <CircleCard
+                  key={circle.id}
+                  circle={circle}
+                  role={circleRoles.get(circle.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          <Link
+            href="/circles"
+            className="block text-center text-xs mt-4 hover:underline"
+            style={{ color: "var(--color-primary)" }}
+          >
+            Browse all circles →
+          </Link>
         </div>
       )}
 

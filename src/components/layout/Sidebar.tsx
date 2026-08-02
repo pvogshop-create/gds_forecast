@@ -8,6 +8,7 @@ import {
   Trophy,
   Zap,
   Shield,
+  GraduationCap,
   Plus,
   Bell,
   Coins,
@@ -32,6 +33,7 @@ const SECONDARY_NAV = [
   { label: "My Bets", href: "/more?tab=bets", icon: Wallet },
   { label: "Reports", href: "/more?tab=reports", icon: Flag },
   { label: "Notifications", href: "/notifications", icon: Bell },
+  { label: "Circles", href: "/circles", icon: GraduationCap },
   { label: "Leagues", href: "/leagues", icon: Shield },
   { label: "Suggest a Line", href: "/suggest", icon: Plus },
 ] as const;

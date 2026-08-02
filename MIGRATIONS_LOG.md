@@ -39,7 +39,8 @@ CLI ledger from the real schema, which is what required the 2026-07-29 repair ab
 | 0026_resolution_notifications | 2026-07-30 local, 2026-07-31 prod | local, then **prod** (`curtlcoxtnoxljzkrlms`) | `migration up --local`. Losing bettors were told nothing at all when a market they bet on resolved: `resolve_market` (0007) emitted `payout_received` from a loop over winners and handled losers with a set-based `UPDATE` that notified nobody, while `resolve_ou_market` (0010) inserted only in its WIN branch — its LOSS branch silent and its PUSH branch refunding coins with no explanation. `market_resolved` had been in the `notification_type` enum since 0002 and was inserted by nothing, anywhere, so no `ALTER TYPE` was needed (which also sidesteps the 0023 same-transaction enum trap). Verified: a binary loser gets exactly one `market_resolved` naming outcome, side and stake; three losing positions collapse to **one** notification carrying the summed stake; a market with no losers writes **zero** rows (the `GROUP BY` runs over a data-modifying CTE, so the empty case needed checking); O/U loser and O/U push each notified, the push body saying refunded rather than won or lost. Payouts, streaks and balances byte-identical — the migration adds only INSERTs. Two pre-existing tests pinned the gap deliberately and were flipped as part of this change (`resolution-payout.spec.ts`; and the comment in `betting-loop.spec.ts`, whose assertion now holds for the opposite reason — its only bettor is a winner). Full suite 253 green. **Prod:** `db push` on 2026-07-31 after a dry-run listing 0026 and 0027 as the only queued migrations; `migration list --linked` now shows **27 matched local/remote pairs**. Notification behaviour itself is not probed on prod — doing so would mean resolving a real market — so it rests on the local suite plus the fact that this migration only replaces two function bodies and adds INSERTs. |
 | 0027_locked_line_and_referral | 2026-07-30 local, 2026-07-31 prod | local, then **prod** (`curtlcoxtnoxljzkrlms`) | `migration up --local`. Investigating a suspected lost-update race in `place_bet` found the function **already correct** — `SELECT … FOR UPDATE` on the market before reading pools and on the profile before the balance check (0013), balance deducted in place. Confirmed by mutation testing rather than by reading: stripping both locks locally turns 4 of the 6 tests in the new `e2e/concurrency.spec.ts` red, with the market-lock test showing a 500-coin pool collapse to **200**, the profile-lock test **1100 → 400**, the overdraft test letting **3 of 5** bets through on a 100-coin balance (driving it negative — `profiles.coins` has no `CHECK (coins >= 0)`), and the O/U line landing on 4.5 instead of 5.5. The invariant *everyone who writes pools holds the market lock* was broken one layer out by `setMarketLine()`, which read pools over PostgREST, computed in TypeScript, and wrote back across two transactions — so a bet landing in between had its pool contribution erased while staying debited. Adds `set_market_line()` (locked, service-role gated, refuses settled and O/U markets) and `american_odds_to_prob()`, the SQL inverse of the TS `americanOddsToProb`, shipped with a value-table agreement test because a drift would silently reprice markets rather than error. Locks `record_referral()`'s idempotency check (concurrent calls both passed the bare `EXISTS` and **minted 500 coins twice**) and adds its missing `search_path` pin. Gives `profiles.referred_by` `ON DELETE SET NULL`: it had no ON DELETE action, so **any user who had ever referred somebody could not be deleted** — a live account-deletion bug, and the reason E2E teardown left fixtures behind and produced intermittent `markets_creator_id_fkey` failures. Full suite 253 green. **Prod:** same `db push`; `migration list --linked` shows 27 matched pairs. Both new functions probed live with the service-role key: `american_odds_to_prob(-110)` returns `0.52380952380952380952` and `(150)` returns `0.4`, matching the TypeScript to full precision, and `set_market_line` with a bogus UUID reaches its own `Market not found` guard — proving the function, its gate and its lock path all landed. The `referred_by` FK change is verified on **local only**: PostgREST cannot read `pg_catalog`, and confirming it on prod would require deleting a real user. Same caveat as 0023's publication change. |
 | 0028_ou_push_streak | 2026-07-31 | **local only** | `migration up --local`. `pg_proc` confirms the new body (`v_is_push`) and `pg_trigger` confirms `on_position_resolved` is still bound to it — CREATE OR REPLACE keeps the 0021 binding, so no re-bind was needed. Behaviour verified by `e2e/betting-ou.spec.ts` (16 green): a push now leaves `win_streak` at 0 (was 1); a win→push→win sequence advances the streak 1→1→2 rather than resetting or double-counting; a push does not clear an existing loss streak; and a binary win at -2100 odds whose payout rounds to exactly the stake still counts as a win, guarding the `payout == coins_wagered` shortcut this migration deliberately avoided. **Not yet on prod.** |
-| _next: 0029 (circles + circle_members tables)_ | | | |
+| 0029_circles | 2026-08-02 | **local only** | `migration up --local`. **First tier-foundation migration** — adds `circles`, `circle_members`, the `sync_circle_member_count` trigger, `is_circle_member()` / `is_circle_moderator()`, 8 RLS policies, and the `create_circle` / `find_circle_by_invite_code` / `join_circle` RPCs. Additive only: no existing table, policy or function is touched. **`pg_policies` 39 → 47** — exactly the 8 new circle policies, checked before and after per the 0024 lesson that a no-op `DROP POLICY IF EXISTS` is silent and permissive policies are OR'd; tables 17 → 19. Re-running the file is a clean no-op (only `IF NOT EXISTS` notices, policy count still 47). Covered by `e2e/circles.spec.ts`, **51 tests**. **Both SELECT policies were mutation-tested rather than merely asserted**: rewriting `circles_select` to `USING (true)` turns exactly 3 tests red (non-member direct-by-id read, non-member list read, and the find-by-code test whose premise is that Bob cannot read the circle) and rewriting `circle_members_select` to `USING (true)` turns exactly 2 red — so the negative assertions are wired to the policy and cannot be passing vacuously. Betting loop green; **full suite 307 passed / 3 skipped / 0 failed** (was 253 tests before this step). `type-check`, `lint` and `build` all clean. **Not yet on prod** — 0028 and 0029 will be pushed together. |
+| _next: 0030 (market tier columns)_ | | | |
 
 ### Prod data operations (not migrations, but they changed production)
 
@@ -61,6 +62,64 @@ The E2E suite's over/under push test asserted that `wins` stays flat for a tie, 
 `win_streak` assertion was added alongside it — on the theory that a trigger keying off
 `status = 'won'` could not tell a push apart from a win — it went red immediately. It had been wrong
 since 0020. Consumes `0028`, so circles moves to `0029` and the sequence shifts one more.
+
+### What 0029 added beyond the spec, and why
+
+Spec §2.1–2.2 describes the two tables and the count trigger. Five things were added on top, each
+because the spec's shape had a hole that only shows up once the thing is reachable from a browser:
+
+1. **`max_members INTEGER NOT NULL DEFAULT 500`.** §2.1 has no cap column at all. A circle is a whole
+   school, so the number is high, but "no cap" on a product for minors is a griefing surface, and the
+   cap has to exist before `join_circle()` can enforce anything.
+2. **`CHECK (slug ~ '^[a-z0-9-]{3,40}$')`.** The slug is a route segment (`/circles/[slug]`). Without
+   the constraint an admin typo mints a circle that is unreachable, and nothing surfaces until someone
+   clicks the link. `create_circle()` also `lower()`s the slug, so capitalisation is *normalised*
+   rather than rejected — the CHECK still guards a direct insert that skips the RPC, and both
+   behaviours are pinned by tests.
+3. **`is_circle_member()` / `is_circle_moderator()`, both SECURITY DEFINER.** This is 0024's lesson
+   applied before the bug rather than after: `circle_members_select` needs a membership test, and
+   writing that as a subquery over `circle_members` is exactly what made every authenticated read of
+   every league table fail with `42P17` for months. A SECURITY DEFINER helper does not re-enter the
+   caller's policies. There is a test whose only assertion is that a plain `circle_members` read does
+   not error, which is what a recursion regression would look like.
+4. **`create_circle()` writes the circle and the creator's membership in one transaction.** Because
+   `circles_select` is membership-based, a circle whose creator row failed to land is invisible to
+   everyone *including its creator* — an unrecoverable state through the UI. This is the same
+   two-transaction shape 0027 removed from `setMarketLine()`.
+5. **`join_circle()` is the only write path into `circle_members`.** The INSERT policy is
+   service_role-only — a user cannot insert a membership even for themselves. That is deliberately
+   stricter than "you may add yourself": a self-insert policy would be a way around the cap and the
+   `joining_policy` check, both of which live inside the RPC behind `SELECT … FOR UPDATE` on the
+   circle. The concurrency test proves it: five users racing to join a circle capped at 3 produce
+   exactly 2 winners and 3 `This circle is full.` errors.
+
+`find_circle_by_invite_code()` is a straight port of `find_league_by_invite_code()` (0024). It exists
+because a prospective member is not yet a member, so `circles_select` hides the row and a direct
+`.eq('invite_code', …)` returns nothing — reporting every **valid** code as invalid. Leagues shipped
+with that bug and nobody noticed for months. The test asserts both halves together: Bob cannot read
+Circle X directly, *and* Bob can resolve it from its code.
+
+**Deferred on purpose:** `circle_join_requests` (spec §2.3). `joining_policy` still accepts
+`request_approval` so no future migration is needed to add the value, but `join_circle()` raises on
+it rather than falling through to "allowed" — a policy value the join path does not understand must
+never default open.
+
+### Two defects found while building 0029
+
+Neither is in circles; both were pre-existing and are fixed in the same commit.
+
+1. **`expectCannotWrite()` (`e2e/helpers/rls.ts`) could not test any composite-PK table.** Its
+   did-anything-actually-land follow-up read was hardcoded to `admin.from(table).select("id")`, which
+   raises `42703 column "id" does not exist` on `circle_members`, `market_reactions`,
+   `league_members` and friends. The helper then threw its own "nothing landed is unproven" error
+   rather than passing or failing. That matters well beyond circles: `market_reactions` is one of the
+   six tables **step 10d** has to write negative-*write* tests against, and this would have blocked
+   it. Now `select("*")`.
+2. **`src/types/database.ts` told the reader to overwrite itself.** Its header still said *"Replace
+   with generated types once the Supabase project is set up: npx supabase gen types typescript"* —
+   the precise trap CLAUDE.md warns about, since the generator emits a differently-shaped `Database`
+   interface and would break every import in `src/`. CLAUDE.md asserts the file "documents itself" as
+   hand-written; it documented the opposite. Header rewritten.
 
 ### Why 0024 exists (it was not in the original plan either)
 

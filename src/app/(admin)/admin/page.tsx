@@ -4,14 +4,16 @@ import { AdminMarkets } from "./AdminMarkets";
 import { AdminSuggestions } from "./AdminSuggestions";
 import { AdminUsers } from "./AdminUsers";
 import { AdminCreateMarket } from "./AdminCreateMarket";
+import { AdminCreateCircle } from "./AdminCreateCircle";
 import { AdminIncidents } from "./AdminIncidents";
 import Link from "next/link";
-import type { Market, MarketSuggestion, Profile, IncidentReportWithMarket } from "@/types/database";
+import type { Circle, Market, MarketSuggestion, Profile, IncidentReportWithMarket } from "@/types/database";
 
 const TABS = [
   { id: "suggestions", label: "Suggestions" },
   { id: "create", label: "Create" },
   { id: "markets", label: "Markets" },
+  { id: "circles", label: "Circles" },
   { id: "users", label: "Users" },
   { id: "incidents", label: "Incidents" },
 ] as const;
@@ -27,6 +29,7 @@ export default async function AdminPage({
   const tab: TabId =
     rawTab === "create" ||
     rawTab === "markets" ||
+    rawTab === "circles" ||
     rawTab === "users" ||
     rawTab === "incidents"
       ? rawTab
@@ -51,6 +54,7 @@ export default async function AdminPage({
   let suggestions: Array<MarketSuggestion & { profiles: Pick<Profile, "username" | "avatar_url"> | null }> = [];
   let users: Pick<Profile, "id" | "username" | "display_name" | "avatar_url" | "coins" | "total_bets" | "wins">[] = [];
   let incidentReports: IncidentReportWithMarket[] = [];
+  let circles: Circle[] = [];
 
   if (tab === "suggestions") {
     const { data } = await admin
@@ -67,6 +71,16 @@ export default async function AdminPage({
       .order("created_at", { ascending: false })
       .limit(50);
     markets = (data ?? []) as Market[];
+  } else if (tab === "circles") {
+    // Through the admin client, so this listing shows EVERY circle. A normal
+    // session would only see the ones it belongs to plus open ones — correct
+    // for /circles, useless for administering them.
+    const { data } = await admin
+      .from("circles")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    circles = (data ?? []) as Circle[];
   } else if (tab === "users") {
     const { data } = await admin
       .from("profiles")
@@ -191,6 +205,70 @@ export default async function AdminPage({
       )}
       {tab === "create" && <AdminCreateMarket />}
       {tab === "markets" && <AdminMarkets markets={markets} />}
+      {tab === "circles" && (
+        <div className="space-y-6">
+          <AdminCreateCircle />
+
+          <section>
+            <h2
+              className="font-semibold text-sm mb-3"
+              style={{ color: "var(--color-ink-primary)" }}
+            >
+              All circles ({circles.length})
+            </h2>
+            {circles.length === 0 ? (
+              <p
+                className="rounded-xl p-5 text-sm text-center"
+                style={{
+                  backgroundColor: "var(--color-bg-card)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-ink-tertiary)",
+                }}
+              >
+                No circles yet. Create the first one above.
+              </p>
+            ) : (
+              <ul className="space-y-2" data-testid="admin-circle-list">
+                {circles.map((circle) => (
+                  <li
+                    key={circle.id}
+                    className="flex items-center gap-3 rounded-xl p-3"
+                    style={{
+                      backgroundColor: "var(--color-bg-card)",
+                      border: "1px solid var(--color-border)",
+                    }}
+                    data-testid="admin-circle-row"
+                    data-circle-slug={circle.slug}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <Link
+                        href={`/circles/${circle.slug}`}
+                        className="text-sm font-medium truncate hover:underline"
+                        style={{ color: "var(--color-ink-primary)" }}
+                      >
+                        {circle.name}
+                      </Link>
+                      <p
+                        className="text-xs font-mono mt-0.5"
+                        style={{ color: "var(--color-ink-tertiary)" }}
+                      >
+                        /circles/{circle.slug} · {circle.joining_policy}
+                        {circle.invite_code ? ` · ${circle.invite_code}` : ""}
+                      </p>
+                    </div>
+                    <span
+                      className="text-xs flex-shrink-0"
+                      style={{ color: "var(--color-ink-tertiary)" }}
+                    >
+                      {circle.member_count} / {circle.max_members}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
       {tab === "users" && <AdminUsers users={users} />}
       {tab === "incidents" && (
         <div
